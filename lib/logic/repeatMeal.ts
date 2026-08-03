@@ -30,7 +30,9 @@ export async function findYesterdayEntry(
   if (!dayLog) return null;
 
   const entries = await db.getAllFromIndex("mealEntries", "by-dayLogId", dayLog.id);
-  const entry = entries.find((e) => e.clave === clave);
+  // Una comida borrada (archivadoEn) no se repite: sigue en IndexedDB por el
+  // borrado lógico de §5.4.4, pero ya no es algo que el atleta haya comido.
+  const entry = entries.find((e) => e.clave === clave && !e.archivadoEn);
   if (!entry) return null;
 
   return { entry, portions: await getPortionsForMeal(entry.id) };
@@ -40,7 +42,7 @@ export async function findLastEntry(fechaHoy: string, clave: PlanMealSlotClave):
   const db = await getDB();
   const allEntries = await db.getAll("mealEntries");
   const candidatos = allEntries
-    .filter((e) => e.clave === clave)
+    .filter((e) => e.clave === clave && !e.archivadoEn)
     .sort((a, b) => b.horaRegistro.getTime() - a.horaRegistro.getTime());
 
   for (const entry of candidatos) {

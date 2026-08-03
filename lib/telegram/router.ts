@@ -1,0 +1,374 @@
+import { prisma } from "@/lib/prisma";
+import { localDayString } from "@/lib/date";
+import { currentSlotForTime } from "@/lib/logic/mealSlot";
+import { logEvent, errorInfo } from "@/lib/log";
+import { sendMessage, editMessageText, answerCallbackQuery, descargarFoto } from "./api";
+import {
+  proponerRegistro,
+  confirmarRegistro,
+  leerSesion,
+  borrarSesion,
+  guardarSesion,
+  barrasDelDia,
+  botonesAjuste,
+  macrosDe,
+} from "./registro";
+import { estadoDelDia, AYUDA, tarjetaEstimacion } from "./mensajes";
+import type { PlanMealSlotClave } from "@prisma/client";
+
+const SLOT_POR_COMANDO: Record<string, PlanMealSlotClave> = {
+  desayuno: "desayuno",
+  comida: "comida",
+  cena: "cena",
+  snack: "snack_am",
+  postgym: "post_gym",
+};
+
+export interface TelegramUpdate {
+  update_id: number;
+  message?: {
+    message_id: number;
+    chat: { id: number };
+    text?: string;
+    caption?: string;
+    photo?: { file_id: string; file_size?: number; width: number; height: number }[];
+  };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: { message_id: number; chat: { id: number } };
+  };
+}
+
+export async function procesarUpdate(update: TelegramUpdate): Promise<string | null> {
+  try {
+    if (update.callback_query) return await manejarCallback(update);
+    if (update.message) return await manejarMensaje(update);
+    return null;
+  } catch (err) {
+    logEvent("tg_procesar_error", { updateId: update.update_id, ...errorInfo(err) });
+    const chatId = update.message?.chat.id ?? update.callback_query?.message?.chat.id;
+    if (chatId) {
+      await sendMessage(String(chatId), "Algo falló al procesar eso. Vuelve a intentarlo.");
+    }
+    throw err;
+  }
+}
+
+async function manejarMensaje(update: TelegramUpdate): Promise<string | null> {
+  const msg = update.message!;
+  const chatId = String(msg.chat.id);
+  const texto = (msg.text ?? msg.caption ?? "").trim();
+
+  // Comandos que no registran comida.
+  if (texto.startsWith("/")) {
+    const [crudo, ...resto] = texto.split(/\s+/);
+    const comando = crudo.slice(1).split("@")[0].toLowerCase();
+    const argumento = resto.join(" ").trim();
+
+    switch (comando) {
+      case "ayuda":
+      case "start":
+        await sendMessage(chatId, AYUDA);
+        return null;
+      case "hoy":
+        await enviarEstado(chatId, localDayString(), "Hoy");
+        return null;
+      case "ayer":
+        await enviarEstado(chatId, restarUnDia(localDayString()), "Ayer");
+        return null;
+      case "semana":
+        await enviarSemana(chatId);
+        return null;
+      case "platillos":
+        await enviarPlatillos(chatId);
+        return null;
+      case "agua":
+        await registrarAgua(chatId, argumento);
+        return null;
+      case "peso":
+        await registrarPeso(chatId, argumento);
+        return null;
+      case "deshacer":
+        await deshacer(chatId);
+        return null;
+      default: {
+        const slot = SLOT_POR_COMANDO[comando];
+        if (!slot) {
+          await sendMessage(chatId, "No conozco ese comando. /ayuda te dice cuáles hay.");
+          return null;
+        }
+        return await registrarDesdeMensaje(chatId, msg, argumento, slot);
+      }
+    }
+  }
+
+  if (!texto && !msg.photo) return null;
+
+  // Sin comando, la hora decide el slot (§6.5). Siempre modificable en la
+  // confirmación.
+  return await registrarDesdeMensaje(chatId, msg, texto, currentSlotForTime());
+}
+
+async function registrarDesdeMensaje(
+  chatId: string,
+  msg: NonNullable<TelegramUpdate["message"]>,
+  texto: string,
+  slotClave: PlanMealSlotClave
+): Promise<string | null> {
+  let fotoId: string | null = null;
+  let imagen: { base64: string; mime: string } | null = null;
+
+  if (msg.photo?.length) {
+    const foto = await descargarFoto(msg.photo);
+    if (foto) {
+      fotoId = crypto.randomUUID();
+      await prisma.mealPhoto.create({
+        data: {
+          id: fotoId,
+          mime: "image/jpeg",
+          bytes: foto.buffer.byteLength,
+          datos: new Uint8Array(foto.buffer),
+          ancho: foto.ancho,
+          alto: foto.alto,
+          origen: "telegram",
+          telegramFileId: foto.fileId,
+        },
+      });
+      imagen = { base64: foto.buffer.toString("base64"), mime: "image/jpeg" };
+    }
+  }
+
+  await proponerRegistro({ chatId, slotClave, texto: texto || null, fotoId, imagen });
+  return null;
+}
+
+async function manejarCallback(update: TelegramUpdate): Promise<string | null> {
+  const cq = update.callback_query!;
+  const chatId = String(cq.message?.chat.id ?? "");
+  const data = cq.data ?? "";
+  if (!chatId) return null;
+
+  if (data === "noop") {
+    await answerCallbackQuery(cq.id);
+    return null;
+  }
+
+  const sesion = await leerSesion(chatId);
+  if (!sesion) {
+    await answerCallbackQuery(cq.id, "Esa propuesta ya expiró");
+    await sendMessage(chatId, "Esa propuesta expiró. Vuelve a mandarme qué comiste.");
+    return null;
+  }
+
+  if (data === "cancel") {
+    await borrarSesion(chatId);
+    await answerCallbackQuery(cq.id, "Cancelado");
+    if (cq.message) await editMessageText(chatId, cq.message.message_id, "Cancelado.");
+    return null;
+  }
+
+  if (data === "conf") {
+    await answerCallbackQuery(cq.id);
+    await confirmarRegistro(chatId, sesion);
+    return null;
+  }
+
+  if (data === "ajustar") {
+    await answerCallbackQuery(cq.id);
+    if (cq.message) {
+      await editMessageText(
+        chatId,
+        cq.message.message_id,
+        tarjetaEstimacion({
+          slotClave: sesion.slotClave,
+          slotNombre: sesion.slotClave,
+          estimacion: sesion.estimacion,
+          macros: macrosDe(sesion.estimacion),
+        }),
+        botonesAjuste(sesion.estimacion)
+      );
+    }
+    return null;
+  }
+
+  // aj:<grupo>:<+|->  — editar en el chat sin abrir la app (§6.6).
+  if (data.startsWith("aj:")) {
+    const [, grupo, signo] = data.split(":");
+    const delta = signo === "+" ? 0.5 : -0.5;
+    const porciones = sesion.estimacion.porciones.map((p) =>
+      p.grupo === grupo ? { ...p, porciones: Math.max(0, p.porciones + delta) } : p
+    );
+    // Los ítems dejan de ser la verdad en cuanto se ajusta por grupo.
+    const estimacion = { ...sesion.estimacion, porciones, items: [] };
+    await guardarSesion(chatId, { ...sesion, estimacion });
+    await answerCallbackQuery(cq.id);
+    if (cq.message) {
+      await editMessageText(
+        chatId,
+        cq.message.message_id,
+        tarjetaEstimacion({
+          slotClave: sesion.slotClave,
+          slotNombre: sesion.slotClave,
+          estimacion,
+          macros: macrosDe(estimacion),
+        }),
+        botonesAjuste(estimacion)
+      );
+    }
+    return null;
+  }
+
+  await answerCallbackQuery(cq.id);
+  return null;
+}
+
+function restarUnDia(fecha: string): string {
+  const d = new Date(`${fecha}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  return localDayString(d);
+}
+
+async function enviarEstado(chatId: string, fecha: string, titulo: string): Promise<void> {
+  const [barras, dia, plan] = await Promise.all([
+    barrasDelDia(fecha),
+    prisma.dayLog.findUnique({
+      where: { fecha: new Date(`${fecha}T00:00:00.000Z`) },
+      include: {
+        meals: { where: { archivadoEn: null }, include: { portions: true } },
+      },
+    }),
+    prisma.nutritionPlan.findFirst({ where: { activo: true } }),
+  ]);
+
+  const portions = dia?.meals.flatMap((m) => m.portions) ?? [];
+  await sendMessage(
+    chatId,
+    estadoDelDia({
+      titulo,
+      barras,
+      kcal: portions.reduce((a, p) => a + p.kcal, 0),
+      kcalObjetivo: plan?.kcalObjetivo ?? 0,
+      proteinaG: portions.reduce((a, p) => a + p.proteinaG, 0),
+      proteinaObjetivo: plan?.proteinaG ?? 0,
+      nEntradas: dia?.meals.length ?? 0,
+    })
+  );
+}
+
+async function enviarSemana(chatId: string): Promise<void> {
+  const hoy = localDayString();
+  const inicio = new Date(`${hoy}T00:00:00.000Z`);
+  inicio.setUTCDate(inicio.getUTCDate() - 6);
+
+  const [dias, plan] = await Promise.all([
+    prisma.dayLog.findMany({
+      where: { fecha: { gte: inicio }, archivadoEn: null },
+      include: { meals: { where: { archivadoEn: null }, include: { portions: true } } },
+    }),
+    prisma.nutritionPlan.findFirst({ where: { activo: true } }),
+  ]);
+
+  const conRegistro = dias.filter((d) => d.meals.length > 0);
+  if (conRegistro.length === 0) {
+    await sendMessage(chatId, "<b>Últimos 7 días</b>\n\nSin registros todavía.");
+    return;
+  }
+
+  const kcal = conRegistro.map((d) => d.meals.flatMap((m) => m.portions).reduce((a, p) => a + p.kcal, 0));
+  const prot = conRegistro.map((d) =>
+    d.meals.flatMap((m) => m.portions).reduce((a, p) => a + p.proteinaG, 0)
+  );
+  const prom = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  await sendMessage(
+    chatId,
+    `<b>Últimos 7 días</b>\n\n` +
+      `Días registrados: ${conRegistro.length} / 7\n` +
+      `Promedio: ${Math.round(prom(kcal))} kcal · P ${Math.round(prom(prot))} g\n` +
+      `Objetivo: ${Math.round(plan?.kcalObjetivo ?? 0)} kcal · P ${Math.round(plan?.proteinaG ?? 0)} g`
+  );
+}
+
+async function enviarPlatillos(chatId: string): Promise<void> {
+  const dishes = await prisma.dish.findMany({
+    where: { archivadoEn: null },
+    orderBy: [{ vecesUsado: "desc" }, { nombre: "asc" }],
+    take: 30,
+  });
+  const lineas = dishes.map(
+    (d) => `• ${d.nombre}${d.alias.length ? ` <i>(${d.alias.join(", ")})</i>` : ""}`
+  );
+  await sendMessage(chatId, `<b>Tus platillos</b>\n\n${lineas.join("\n")}`);
+}
+
+async function registrarAgua(chatId: string, argumento: string): Promise<void> {
+  const ml = Number.parseInt(argumento.replace(/[^\d]/g, ""), 10);
+  if (!Number.isFinite(ml) || ml <= 0) {
+    await sendMessage(chatId, "Dime cuántos ml, por ejemplo <code>/agua 500</code>.");
+    return;
+  }
+  const fecha = localDayString();
+  const f = new Date(`${fecha}T00:00:00.000Z`);
+  const dia = await prisma.dayLog.upsert({
+    where: { fecha: f },
+    create: { id: crypto.randomUUID(), fecha: f, aguaMl: ml, sincronizadoEn: new Date(), revision: 1 },
+    update: { aguaMl: { increment: ml }, revision: { increment: 1 } },
+  });
+  await sendMessage(chatId, `Agua: ${((dia.aguaMl ?? 0) / 1000).toFixed(1)} L hoy.`);
+}
+
+async function registrarPeso(chatId: string, argumento: string): Promise<void> {
+  const kg = Number.parseFloat(argumento.replace(",", "."));
+  if (!Number.isFinite(kg) || kg <= 0) {
+    await sendMessage(chatId, "Dime el peso, por ejemplo <code>/peso 84.3</code>.");
+    return;
+  }
+  const fecha = localDayString();
+  const f = new Date(`${fecha}T00:00:00.000Z`);
+
+  await prisma.weightEntry.upsert({
+    where: { fecha_fuente: { fecha: f, fuente: "telegram" } },
+    create: { fecha: f, pesoKg: kg, fuente: "telegram" },
+    update: { pesoKg: kg },
+  });
+  await prisma.dayLog.upsert({
+    where: { fecha: f },
+    create: {
+      id: crypto.randomUUID(),
+      fecha: f,
+      pesoCorporalKg: kg,
+      sincronizadoEn: new Date(),
+      revision: 1,
+    },
+    update: { pesoCorporalKg: kg, revision: { increment: 1 } },
+  });
+
+  // El peso es canónico en appgym; aquí solo se cachea (§5.1).
+  await sendMessage(chatId, `Peso registrado: ${kg} kg. Acuérdate de meterlo también en appgym.`);
+}
+
+async function deshacer(chatId: string): Promise<void> {
+  const fecha = localDayString();
+  const dia = await prisma.dayLog.findUnique({
+    where: { fecha: new Date(`${fecha}T00:00:00.000Z`) },
+    include: {
+      meals: { where: { archivadoEn: null }, orderBy: { horaRegistro: "desc" }, take: 1 },
+    },
+  });
+
+  const ultima = dia?.meals[0];
+  if (!ultima) {
+    await sendMessage(chatId, "No hay nada que deshacer hoy.");
+    return;
+  }
+
+  // Borrado lógico (§5.4.4).
+  await prisma.mealEntry.update({
+    where: { id: ultima.id },
+    data: { archivadoEn: new Date(), version: { increment: 1 } },
+  });
+  await prisma.dayLog.update({ where: { id: dia!.id }, data: { revision: { increment: 1 } } });
+
+  await sendMessage(chatId, `Quité «${ultima.titulo ?? ultima.clave}».`);
+}

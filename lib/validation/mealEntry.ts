@@ -4,6 +4,11 @@ const portionSchema = z.object({
   id: z.string().uuid(),
   foodGroupId: z.string(),
   foodItemId: z.string().nullable(),
+  // Nombre y cantidad legibles del ítem. `nullish` para que un cliente que
+  // todavía no los manda siga validando.
+  nombre: z.string().max(120).nullish(),
+  cantidad: z.string().max(60).nullish(),
+  orden: z.number().int().nullish(),
   porciones: z.number(),
   kcal: z.number(),
   proteinaG: z.number(),
@@ -31,6 +36,12 @@ export const mealEntrySchema = z.object({
   notas: z.string().nullable(),
   version: z.number().int(),
   origen: z.enum(["app", "telegram", "import"]).default("app"),
+  titulo: z.string().max(120).nullish(),
+  estadoClasificacion: z.enum(["clasificado", "pendiente", "fallido"]).nullish(),
+  confianzaIa: z.number().min(0).max(1).nullish(),
+  modeloIa: z.string().max(80).nullish(),
+  fotoPrincipalId: z.string().nullish(),
+  estimacionIa: z.unknown().nullish(),
   portions: z.array(portionSchema),
 });
 

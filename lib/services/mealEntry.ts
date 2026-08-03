@@ -70,6 +70,12 @@ export async function upsertMealEntry(input: MealEntryInput) {
         notas: data.notas,
         version: data.version,
         origen: data.origen,
+        titulo: data.titulo ?? null,
+        estadoClasificacion: data.estadoClasificacion ?? "clasificado",
+        confianzaIa: data.confianzaIa ?? null,
+        modeloIa: data.modeloIa ?? null,
+        fotoPrincipalId: data.fotoPrincipalId ?? null,
+        estimacionIa: (data.estimacionIa ?? null) as Prisma.InputJsonValue,
       },
       update: {
         // Repunta la comida al día canónico: pudo haberse creado colgada de
@@ -84,6 +90,12 @@ export async function upsertMealEntry(input: MealEntryInput) {
         notas: data.notas,
         version: data.version,
         origen: data.origen,
+        titulo: data.titulo ?? null,
+        estadoClasificacion: data.estadoClasificacion ?? "clasificado",
+        confianzaIa: data.confianzaIa ?? null,
+        modeloIa: data.modeloIa ?? null,
+        fotoPrincipalId: data.fotoPrincipalId ?? null,
+        estimacionIa: (data.estimacionIa ?? null) as Prisma.InputJsonValue,
       },
     });
 
@@ -95,6 +107,9 @@ export async function upsertMealEntry(input: MealEntryInput) {
           mealEntryId: data.id,
           foodGroupId: p.foodGroupId,
           foodItemId: p.foodItemId,
+          nombre: p.nombre ?? null,
+          cantidad: p.cantidad ?? null,
+          orden: p.orden ?? 0,
           porciones: p.porciones,
           kcal: p.kcal,
           proteinaG: p.proteinaG,

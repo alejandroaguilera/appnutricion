@@ -6,14 +6,7 @@ import { FOOD_ITEMS_BY_GROUP, parseGramos } from "@/lib/data/foodItems";
 import { DISHES } from "@/lib/data/dishes";
 import { ACTIVE_PLAN, DAILY_TARGETS, SLOTS } from "@/lib/data/plan";
 import { parseWeightCsv } from "@/lib/services/parseWeightCsv";
-
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .trim();
-}
+import { normalize } from "@/lib/text";
 
 export interface SeedResult {
   skipped: boolean;
