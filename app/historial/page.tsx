@@ -94,13 +94,20 @@ export default function HistorialPage() {
       ) : (
         <>
           {/* El indicador que más importa (§3.4). */}
-          <Card className="p-4">
-            <p className="text-sm text-muted">Días registrados esta semana</p>
-            <p className="mt-1 text-3xl font-semibold tabular-nums text-primary">
-              {registradosEstaSemana}
-              <span className="text-base font-normal text-muted"> / 7</span>
-            </p>
-          </Card>
+          <Link href={`/historial/semana/${restarDias(hoy, 6)}`}>
+            <Card className="p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted">Días registrados esta semana</p>
+                  <p className="mt-1 text-3xl font-semibold tabular-nums text-primary">
+                    {registradosEstaSemana}
+                    <span className="text-base font-normal text-muted"> / 7</span>
+                  </p>
+                </div>
+                <span className="text-xs text-muted underline underline-offset-4">Ver revisión</span>
+              </div>
+            </Card>
+          </Link>
 
           <Card className="p-4">
             <h2 className="mb-3 text-sm font-medium text-muted">Calorías</h2>
