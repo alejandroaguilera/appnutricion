@@ -20,7 +20,7 @@ El spec es el contrato de diseño y no se edita; este archivo es lo que va cambi
 | 8 | Sincronización con `appgym` | ⬜ pendiente |
 | 9 | API de export + markdown | ⬜ pendiente |
 | 10 | Telegram: webhook, comandos, registro | ✅ activo (@appnutricion_bot) |
-| 11 | Estimación por texto y foto (`lib/ai/`) | ✅ desplegado, bloqueado por créditos de xAI |
+| 11 | Estimación por texto y foto (`lib/ai/`) | ✅ activo (grok-4.5) |
 | 12 | Mensajes salientes de Telegram | ✅ resumen diario y revisión dominical |
 
 Fuera de la tabla del §9, también construido: esqueleto de navegación por pestañas,
@@ -36,16 +36,18 @@ Todas cargadas en Dokploy (2026-08-04): `XAI_API_KEY`, `XAI_MODEL`,
 Bot: **@appnutricion_bot**. `chat_id` autorizado: `6647020281` (único; cualquier
 otro chat se ignora en silencio, §6.3).
 
-### ⚠️ Bloqueo activo: la cuenta de xAI no tiene créditos
+### Rendimiento medido (2026-08-04)
 
-La llave autentica bien, pero **toda llamada devuelve `permission-denied`**:
-*"Your newly created team doesn't have any credits or licenses yet."*
-Se compran en https://console.x.ai/team/48e41434-4e2a-4ae9-9d4f-dd62c33f8fa3
-
-No es un problema de código. Mientras tanto la app degrada como se diseñó:
-`/api/estimate` responde **503** (no 500) y el registro se guarda con
-`estadoClasificacion = pendiente`, con texto y foto intactos, para que
-`reclassifyPending` lo retome solo. **Nunca se descarta el registro.**
+- **Camino local** (alias de platillo guardado): **3 ms**, sin llamada al
+  modelo, confianza 1. Es el camino del caso común y es gratis.
+- **Modelo, solo texto**: 12-17.5 s. `grok-4.5` razona antes de responder.
+- Por eso el timeout está en **60 s** y no en 25: con 25 s se abortaban
+  estimaciones que iban a llegar bien, y el registro caía a `pendiente` sin
+  necesidad. La UI avisa que puede tardar.
+- Telegram no sufre esta latencia: el webhook responde 200 de inmediato y
+  procesa después, así que Telegram nunca reintenta por lentitud.
+- Si algún día molesta la espera, `grok-4-fast` existe en la cuenta y sería
+  bastante más rápido a cambio de algo de precisión. Decisión de Alejandro.
 
 ### Lo que se aprendió de la API de xAI
 

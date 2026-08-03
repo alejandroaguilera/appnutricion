@@ -64,7 +64,11 @@ export async function xaiChat(args: {
 
   const inicio = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), args.timeoutMs ?? 25_000);
+  // grok-4.5 razona antes de responder: medido en 12-17 s con solo texto, y
+  // una foto tarda más. Con 25 s se abortaban estimaciones que iban a llegar
+  // bien. Es preferible que el atleta espere a que pierda la estimación y el
+  // registro caiga a `pendiente` sin necesidad.
+  const timeout = setTimeout(() => controller.abort(), args.timeoutMs ?? 60_000);
 
   let res: Response;
   try {

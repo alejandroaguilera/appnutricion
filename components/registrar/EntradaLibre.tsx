@@ -161,9 +161,21 @@ export function EntradaLibre({
           onClick={() => void estimar()}
         >
           <Sparkles />
-          {ocupado === "estimando" ? "Estimando…" : ocupado === "foto" ? "Subiendo foto…" : "Estimar"}
+          {ocupado === "estimando"
+            ? "Estimando…"
+            : ocupado === "foto"
+              ? "Subiendo foto…"
+              : "Estimar"}
         </Button>
       </div>
+
+      {/* grok-4.5 razona antes de responder: 12-20 s es lo normal. Sin decirlo,
+          la espera se siente como que la app se colgó. */}
+      {ocupado === "estimando" && (
+        <p className="text-center text-xs text-muted">
+          Puede tardar unos segundos{fotoId ? ". La foto ya está guardada" : ""}.
+        </p>
+      )}
     </section>
   );
 }
