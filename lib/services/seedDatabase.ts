@@ -149,18 +149,30 @@ export async function seedDatabase(prisma: PrismaClient): Promise<SeedResult> {
   }
 
   // ── 5. WeightEntry desde CSV histórico (§10.4) ───────────────────────
-  const csvPath = process.env.WEIGHT_CSV_PATH ?? path.join(process.cwd(), "BodyComposition_202601-202607.csv");
+  // El CSV nunca se commitea (datos de salud reales, repo público — ver
+  // decisión #1 del plan). En el servidor de producción llega codificado en
+  // base64 vía WEIGHT_CSV_BASE64 (variable de entorno, nunca en git); en
+  // desarrollo local se lee del archivo apuntado por WEIGHT_CSV_PATH.
+  let csvText: string | null = null;
+  if (process.env.WEIGHT_CSV_BASE64) {
+    csvText = Buffer.from(process.env.WEIGHT_CSV_BASE64, "base64").toString("utf-8");
+  } else {
+    const csvPath = process.env.WEIGHT_CSV_PATH ?? path.join(process.cwd(), "BodyComposition_202601-202607.csv");
+    if (fs.existsSync(csvPath)) {
+      csvText = fs.readFileSync(csvPath, "utf-8");
+    } else {
+      console.warn(`Ni WEIGHT_CSV_BASE64 ni WEIGHT_CSV_PATH (${csvPath}) disponibles — se omite el histórico de peso.`);
+    }
+  }
+
   let weightEntriesCreated = 0;
-  if (fs.existsSync(csvPath)) {
-    const csvText = fs.readFileSync(csvPath, "utf-8");
+  if (csvText) {
     const rows = parseWeightCsv(csvText);
     const result = await prisma.weightEntry.createMany({
       data: rows.map((r) => ({ fecha: new Date(`${r.fecha}T00:00:00.000Z`), pesoKg: r.pesoKg, fuente: "manual" as const })),
       skipDuplicates: true,
     });
     weightEntriesCreated = result.count;
-  } else {
-    console.warn(`WEIGHT_CSV_PATH no encontrado (${csvPath}) — se omite el histórico de peso.`);
   }
 
   return {
