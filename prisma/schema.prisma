@@ -1,0 +1,339 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────
+
+enum FoodGroupClave {
+  verdura
+  fruta
+  cereal
+  leguminosa
+  aoa_muy_bajo
+  aoa_bajo
+  aoa_moderado
+  grasa_sin_proteina
+  grasa_con_proteina
+  leche
+  libre
+}
+
+enum TipoComida {
+  desayuno
+  comida
+  cena
+  snack
+}
+
+enum PlanMealSlotClave {
+  desayuno
+  snack_am
+  comida
+  snack_pm
+  post_gym
+  cena
+}
+
+// Inerte este ciclo: solo "app" se escribe hasta que llegue Telegram (§6).
+enum OrigenMealEntry {
+  app
+  telegram
+  import
+}
+
+// Inerte este ciclo: siempre "clasificado" (no hay camino D todavía).
+enum EstadoClasificacion {
+  clasificado
+  pendiente
+  fallido
+}
+
+enum FuenteWeightEntry {
+  appgym
+  manual
+  telegram
+}
+
+// Inerte este ciclo: schema únicamente, sin código que lo use (§6, fase 10).
+enum TipoTelegramUpdate {
+  texto
+  foto
+  comando
+  callback
+}
+
+// ── Usuario único ──────────────────────────────────────────────────────────
+// Sin roles, sin login — getAthleteId() resuelve la única fila sembrada
+// (lib/athlete.ts, patrón heredado de appgym).
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  nombre      String
+  zonaHoraria String   @default("America/Matamoros")
+  // Bearer token de solo lectura para /api/v1/export/* — columna presente
+  // desde ya (§0.2), pero el guard y las rutas llegan en una ronda futura.
+  exportToken String?  @unique
+  createdAt   DateTime @default(now())
+}
+
+// ── Catálogo ────────────────────────────────────────────────────────────────
+
+model FoodGroup {
+  id        String         @id @default(cuid())
+  clave     FoodGroupClave @unique
+  nombre    String
+  orden     Int
+  color     String
+  kcal      Float
+  proteinaG Float
+  carbosG   Float
+  grasaG    Float
+
+  items          FoodItem[]
+  dishComponents DishComponent[]
+  planTargets    PlanTargetByGroup[]
+  slotTargets    PlanMealSlotTarget[]
+  portions       MealEntryPortion[]
+}
+
+model FoodItem {
+  id               String    @id @default(cuid())
+  foodGroupId      String
+  nombre           String
+  alias            String[]  @default([])
+  cantidadPorcion  String
+  cantidadGramos   Float?
+  esFavorito       Boolean   @default(false)
+  // Restricción del atleta (§10.2): pescado y salmón sembrados aquí pero
+  // archivados — presentes en la base, ausentes de la interfaz. Atún activo.
+  archivadoEn      DateTime?
+  creadoPorUsuario Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  foodGroup      FoodGroup          @relation(fields: [foodGroupId], references: [id])
+  dishComponents DishComponent[]
+  portions       MealEntryPortion[]
+
+  @@index([foodGroupId])
+}
+
+model Dish {
+  id            String       @id @default(cuid())
+  nombre        String
+  alias         String[]     @default([])
+  tipoComida    TipoComida[]
+  descripcion   String?
+  instrucciones String?
+  tiempoPrepMin Int?
+  esFavorito    Boolean      @default(false)
+  vecesUsado    Int          @default(0)
+  archivadoEn   DateTime?
+  createdAt     DateTime     @default(now())
+
+  components  DishComponent[]
+  mealEntries MealEntry[]
+}
+
+model DishComponent {
+  id          String  @id @default(cuid())
+  dishId      String
+  foodItemId  String?
+  foodGroupId String
+  porciones   Float
+  notaLibre   String?
+
+  dish      Dish      @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  foodItem  FoodItem? @relation(fields: [foodItemId], references: [id])
+  foodGroup FoodGroup @relation(fields: [foodGroupId], references: [id])
+
+  @@index([dishId])
+}
+
+// ── Plan ─────────────────────────────────────────────────────────────────
+
+model NutritionPlan {
+  id           String    @id @default(cuid())
+  nombre       String
+  kcalObjetivo Float
+  proteinaG    Float
+  carbosG      Float
+  grasaG       Float
+  fibraG       Float
+  aguaL        Float
+  vigenteDesde DateTime  @db.Date
+  vigenteHasta DateTime? @db.Date
+  notas        String?
+  activo       Boolean   @default(false)
+
+  targets PlanTargetByGroup[]
+  slots   PlanMealSlot[]
+}
+
+model PlanTargetByGroup {
+  id              String @id @default(cuid())
+  nutritionPlanId String
+  foodGroupId     String
+  porcionesDia    Float
+
+  plan      NutritionPlan @relation(fields: [nutritionPlanId], references: [id], onDelete: Cascade)
+  foodGroup FoodGroup     @relation(fields: [foodGroupId], references: [id])
+
+  @@unique([nutritionPlanId, foodGroupId])
+}
+
+model PlanMealSlot {
+  id              String            @id @default(cuid())
+  nutritionPlanId String
+  clave           PlanMealSlotClave
+  nombre          String
+  orden           Int
+  horaSugerida    String
+  esOpcional      Boolean           @default(false)
+
+  plan        NutritionPlan        @relation(fields: [nutritionPlanId], references: [id], onDelete: Cascade)
+  targets     PlanMealSlotTarget[]
+  mealEntries MealEntry[]
+
+  @@unique([nutritionPlanId, clave])
+}
+
+model PlanMealSlotTarget {
+  id             String @id @default(cuid())
+  planMealSlotId String
+  foodGroupId    String
+  porciones      Float
+
+  slot      PlanMealSlot @relation(fields: [planMealSlotId], references: [id], onDelete: Cascade)
+  foodGroup FoodGroup    @relation(fields: [foodGroupId], references: [id])
+
+  @@unique([planMealSlotId, foodGroupId])
+}
+
+// ── Registro ─────────────────────────────────────────────────────────────
+// DayLog, MealEntry y MealEntryPortion nacen con UUID v4 generado en el
+// cliente (§0.3, §4) — por eso su id no lleva @default(cuid()).
+
+model DayLog {
+  id             String    @id
+  fecha          DateTime  @unique @db.Date
+  pesoCorporalKg Float?
+  aguaMl         Int?
+  notas          String?
+  animo1a5       Int?
+  hambre1a5      Int?
+  // Calculada en fases futuras (§7.2) — null este ciclo.
+  adherenciaPct  Float?
+  cerradoEn      DateTime?
+  sincronizadoEn DateTime?
+  archivadoEn    DateTime?
+  // Incrementada server-side en cada escritura del día — base de la
+  // reconciliación multi-escritor (§5.4), que llega en la siguiente ronda.
+  revision       Int       @default(1)
+
+  meals MealEntry[]
+}
+
+model MealEntry {
+  id                  String              @id
+  dayLogId            String
+  planMealSlotId      String?
+  clave               PlanMealSlotClave
+  horaRegistro        DateTime
+  dishId              String?
+  textoLibre          String?
+  fueraDeCasa         Boolean             @default(false)
+  notas               String?
+  version             Int                 @default(1)
+  origen              OrigenMealEntry     @default(app)
+  estimacionIa        Json?
+  estadoClasificacion EstadoClasificacion @default(clasificado)
+  // Añadida más allá del bloque literal de §2 — exigida por la convención
+  // de guarda obligatoria (§0.7) y por el borrado lógico que pedirá §5.4.
+  archivadoEn         DateTime?
+  actualizadoEn       DateTime            @updatedAt
+  createdAt           DateTime            @default(now())
+
+  dayLog   DayLog             @relation(fields: [dayLogId], references: [id], onDelete: Cascade)
+  slot     PlanMealSlot?      @relation(fields: [planMealSlotId], references: [id])
+  dish     Dish?              @relation(fields: [dishId], references: [id])
+  portions MealEntryPortion[]
+
+  @@index([dayLogId])
+  @@index([dayLogId, clave])
+}
+
+model MealEntryPortion {
+  id          String   @id
+  mealEntryId String
+  foodGroupId String
+  foodItemId  String?
+  porciones   Float
+  // Macros congelados al momento del registro (§2) — nunca recalculados
+  // retroactivamente si cambian los valores base del FoodGroup.
+  kcal        Float
+  proteinaG   Float
+  carbosG     Float
+  grasaG      Float
+  createdAt   DateTime @default(now())
+
+  mealEntry MealEntry @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
+  foodGroup FoodGroup @relation(fields: [foodGroupId], references: [id])
+  foodItem  FoodItem? @relation(fields: [foodItemId], references: [id])
+
+  @@index([mealEntryId])
+}
+
+// ── Telegram ─────────────────────────────────────────────────────────────
+// Inerte este ciclo: schema y migración únicamente, sin ninguna ruta ni
+// lógica que las use todavía (§6, fase 10 del spec).
+
+model TelegramUpdate {
+  updateId     BigInt             @id
+  chatId       String
+  recibidoEn   DateTime           @default(now())
+  procesadoEn  DateTime?
+  tipo         TipoTelegramUpdate
+  payloadCrudo Json
+  mealEntryId  String?
+}
+
+model TelegramSession {
+  chatId   String   @id
+  estado   Json
+  expiraEn DateTime
+}
+
+// ── Espejo y análisis ────────────────────────────────────────────────────
+
+model WeightEntry {
+  id                        String            @id @default(cuid())
+  fecha                     DateTime          @db.Date
+  pesoKg                    Float
+  fuente                    FuenteWeightEntry @default(manual)
+  sincronizadoDesdeAppgymEn DateTime?
+  createdAt                 DateTime          @default(now())
+
+  // Evita duplicados al re-correr el seed o al sincronizar desde appgym.
+  @@unique([fecha, fuente])
+}
+
+// Inerte este ciclo: schema únicamente, poblada en la fase 7 (revisión semanal).
+model WeeklyReview {
+  id                  String   @id @default(cuid())
+  semanaInicio        DateTime @db.Date
+  kcalPromedio        Float?
+  proteinaPromedioG   Float?
+  diasRegistrados     Int?
+  adherenciaPct       Float?
+  pesoPromedioMovil7d Float?
+  deltaPesoSemana     Float?
+  ajusteAplicado      String?
+  notas               String?
+  createdAt           DateTime @default(now())
+}

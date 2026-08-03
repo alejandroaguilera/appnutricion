@@ -1,0 +1,32 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# env
+.env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# prisma
+prisma/dev.db
+
+# local deploy secrets (Dokploy ids, DB password, seed token)
+.env.dokploy
+.claude/scheduled_tasks.lock
+
+# datos de salud reales del atleta — nunca al repo público, se coloca a mano
+# en el servidor antes de correr el seed (ver decisión #1 del plan)
+BodyComposition_*.csv
