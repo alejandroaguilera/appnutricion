@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { repairV2, type RepairReport } from "./repair";
 import type {
   FoodGroupRecord,
   FoodItemRecord,
@@ -8,6 +9,7 @@ import type {
   MealEntryRecord,
   MealEntryPortionRecord,
   OutboxRecord,
+  SyncStateRecord,
 } from "./types";
 
 interface AppNutricionDB extends DBSchema {
@@ -50,12 +52,26 @@ interface AppNutricionDB extends DBSchema {
     key: number;
     value: OutboxRecord;
   };
+  // v2: hasta qué revisión del servidor se fusionó cada día. Clave externa
+  // "day:YYYY-MM-DD" (§5.4.3).
+  syncState: {
+    key: string;
+    value: SyncStateRecord;
+  };
 }
 
 const DB_NAME = "appnutricion-db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<AppNutricionDB>> | null = null;
+let ultimoReporteReparacion: RepairReport | null = null;
+
+// El reporte de la migración v2 se guarda para que AppInit lo registre una
+// sola vez en consola: es la única evidencia de qué encontró y qué arregló en
+// el teléfono del atleta, y esa migración corre una vez y no se repite.
+export function getRepairReport(): RepairReport | null {
+  return ultimoReporteReparacion;
+}
 
 export function getDB(): Promise<IDBPDatabase<AppNutricionDB>> {
   if (typeof indexedDB === "undefined") {
@@ -63,27 +79,38 @@ export function getDB(): Promise<IDBPDatabase<AppNutricionDB>> {
   }
   if (!dbPromise) {
     dbPromise = openDB<AppNutricionDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        db.createObjectStore("foodGroups", { keyPath: "id" });
+      async upgrade(db, oldVersion, _newVersion, tx) {
+        if (oldVersion < 1) {
+          db.createObjectStore("foodGroups", { keyPath: "id" });
 
-        const catalog = db.createObjectStore("catalog", { keyPath: "id" });
-        catalog.createIndex("by-foodGroupId", "foodGroupId");
+          const catalog = db.createObjectStore("catalog", { keyPath: "id" });
+          catalog.createIndex("by-foodGroupId", "foodGroupId");
 
-        const dishes = db.createObjectStore("dishes", { keyPath: "id" });
-        dishes.createIndex("by-tipoComida", "tipoComida", { multiEntry: true });
+          const dishes = db.createObjectStore("dishes", { keyPath: "id" });
+          dishes.createIndex("by-tipoComida", "tipoComida", { multiEntry: true });
 
-        db.createObjectStore("plan", { keyPath: "id" });
+          db.createObjectStore("plan", { keyPath: "id" });
 
-        const dayLogs = db.createObjectStore("dayLogs", { keyPath: "id" });
-        dayLogs.createIndex("by-fecha", "fecha");
+          const dayLogs = db.createObjectStore("dayLogs", { keyPath: "id" });
+          dayLogs.createIndex("by-fecha", "fecha");
 
-        const mealEntries = db.createObjectStore("mealEntries", { keyPath: "id" });
-        mealEntries.createIndex("by-dayLogId", "dayLogId");
+          const mealEntries = db.createObjectStore("mealEntries", { keyPath: "id" });
+          mealEntries.createIndex("by-dayLogId", "dayLogId");
 
-        const mealEntryPortions = db.createObjectStore("mealEntryPortions", { keyPath: "id" });
-        mealEntryPortions.createIndex("by-mealEntryId", "mealEntryId");
+          const mealEntryPortions = db.createObjectStore("mealEntryPortions", { keyPath: "id" });
+          mealEntryPortions.createIndex("by-mealEntryId", "mealEntryId");
 
-        db.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true });
+          db.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true });
+        }
+
+        if (oldVersion < 2) {
+          db.createObjectStore("syncState");
+          // Solo tiene sentido reparar si YA había datos (v1 en uso). En una
+          // instalación nueva no hay nada que sanar.
+          if (oldVersion >= 1) {
+            ultimoReporteReparacion = await repairV2(tx);
+          }
+        }
       },
     });
   }

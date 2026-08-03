@@ -30,3 +30,10 @@ prisma/dev.db
 # datos de salud reales del atleta — nunca al repo público, se coloca a mano
 # en el servidor antes de correr el seed (ver decisión #1 del plan)
 BodyComposition_*.csv
+
+# credenciales que Alejandro deja en la raíz para que las cargue a Dokploy —
+# el repo es público, aquí nunca entra un secreto
+Tokens.md
+
+# capturas de referencia y fotos de comida del atleta
+foto*.png

@@ -119,6 +119,8 @@ export interface DayLogRecord {
   revision: number;
 }
 
+export type EstadoClasificacion = "clasificado" | "pendiente" | "fallido";
+
 export interface MealEntryRecord {
   id: string; // UUID v4 de cliente
   dayLogId: string;
@@ -126,19 +128,28 @@ export interface MealEntryRecord {
   clave: PlanMealSlotClave;
   horaRegistro: Date;
   dishId: string | null;
+  titulo: string | null; // encabezado del renglón (estilo caltrack)
   textoLibre: string | null;
   fueraDeCasa: boolean;
   notas: string | null;
   version: number;
   origen: OrigenMealEntry;
-  actualizadoEn: Date;
+  estadoClasificacion: EstadoClasificacion;
+  confianzaIa: number | null;
+  fotoPrincipalId: string | null;
+  archivadoEn: Date | null; // borrado lógico (§5.4.4)
+  actualizadoEn: Date; // base de la reconciliación (§5.4.5)
 }
 
 export interface MealEntryPortionRecord {
   id: string; // UUID v4 de cliente
   mealEntryId: string;
   foodGroupId: string;
+  foodGroupClave: FoodGroupClave | null; // denormalizada, sobrevive un resembrado
   foodItemId: string | null;
+  nombre: string | null; // "Pechuga de pollo"
+  cantidad: string | null; // "150 g", "2 piezas"
+  orden: number;
   porciones: number;
   kcal: number;
   proteinaG: number;
@@ -160,4 +171,19 @@ export interface OutboxRecord {
   intentos: number;
   nextAttemptAt: number; // epoch ms
   permanentError: string | null;
+  // Diagnóstico mostrable: sin esto, un fallo de sync era invisible tanto
+  // para el atleta como para quien depura.
+  ultimoIntentoEn: number | null;
+  httpStatus: number | null;
+  ultimoError: string | null;
+}
+
+// Estado de sincronización por día: hasta qué `revision` del servidor se ha
+// fusionado (§5.4.3) y cuándo fue la última consulta.
+export interface SyncStateRecord {
+  revision: number;
+  ultimaSyncEn: number;
+  // Solo en la clave "buildReintento": el build en el que ya se dio una
+  // segunda oportunidad a los errores permanentes.
+  build?: string;
 }

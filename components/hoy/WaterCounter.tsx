@@ -20,7 +20,7 @@ export function WaterCounter({
   const objetivoMl = Math.round(objetivoL * 1000);
 
   const add = async (delta: number) => {
-    const updated = await updateDayLogField(fecha, dayLog, { aguaMl: Math.max(0, aguaMl + delta) });
+    const updated = await updateDayLogField(fecha, { aguaMl: Math.max(0, aguaMl + delta) });
     onChange(updated);
   };
 

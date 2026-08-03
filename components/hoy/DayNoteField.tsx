@@ -16,7 +16,7 @@ export function DayNoteField({
   const [value, setValue] = useState(dayLog?.notas ?? "");
 
   const commit = async () => {
-    const updated = await updateDayLogField(fecha, dayLog, { notas: value.trim() === "" ? null : value });
+    const updated = await updateDayLogField(fecha, { notas: value.trim() === "" ? null : value });
     onChange(updated);
   };
 

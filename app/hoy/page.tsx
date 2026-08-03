@@ -1,68 +1,84 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { useHoyData } from "@/lib/hooks/useHoyData";
-import { getCachedDishes } from "@/lib/db/catalogSync";
 import { computeBarras, computeMacros } from "@/lib/nutrition/summary";
+import { Screen } from "@/components/shell/Screen";
 import { PortionBars } from "@/components/hoy/PortionBars";
 import { MacroSummaryLine } from "@/components/hoy/MacroSummaryLine";
-import { MealSlotCard, type SlotMealSummary } from "@/components/hoy/MealSlotCard";
+import { DayHeader } from "@/components/hoy/DayHeader";
+import { MealRow } from "@/components/hoy/MealRow";
 import { WaterCounter } from "@/components/hoy/WaterCounter";
 import { WeightTodayCard } from "@/components/hoy/WeightTodayCard";
 import { DayNoteField } from "@/components/hoy/DayNoteField";
-import type { DishRecord } from "@/lib/db/types";
 
 export default function HoyPage() {
   const { loading, fecha, plan, foodGroups, dayLog, meals, refresh } = useHoyData();
-  const [dishes, setDishes] = useState<DishRecord[]>([]);
-
-  useEffect(() => {
-    void getCachedDishes().then(setDishes);
-  }, [meals]);
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-md p-4">
+      <Screen>
         <p className="text-sm text-muted">Cargando…</p>
-      </main>
+      </Screen>
     );
   }
 
   const allPortions = meals.flatMap((m) => m.portions);
   const barras = computeBarras(plan, foodGroups, allPortions);
   const macros = computeMacros(plan, allPortions);
-  const groupNombreByClave = new Map(foodGroups.map((g) => [g.id, g.nombre]));
-  const dishNombreById = new Map(dishes.map((d) => [d.id, d.nombre]));
 
-  const mealsBySlot = new Map<string, SlotMealSummary[]>();
-  for (const { entry, portions } of meals) {
-    const titulo = entry.dishId ? dishNombreById.get(entry.dishId) ?? "Platillo" : "Porciones sueltas";
-    const detalle = portions
-      .filter((p) => p.porciones > 0)
-      .map((p) => `${p.porciones} ${groupNombreByClave.get(p.foodGroupId) ?? ""}`.trim())
-      .join(" · ");
-    const kcal = portions.reduce((acc, p) => acc + p.kcal, 0);
-    const list = mealsBySlot.get(entry.clave) ?? [];
-    list.push({ id: entry.id, titulo, detalle, kcal, origen: entry.origen });
-    mealsBySlot.set(entry.clave, list);
+  const porSlot = new Map<string, typeof meals>();
+  for (const m of meals) {
+    porSlot.set(m.entry.clave, [...(porSlot.get(m.entry.clave) ?? []), m]);
   }
 
   return (
-    <main className="mx-auto flex max-w-md flex-col gap-6 p-4 pb-24">
-      <header>
-        <h1 className="text-lg font-semibold text-foreground">Hoy</h1>
-        <p className="text-xs text-muted">{fecha}</p>
-      </header>
+    <Screen>
+      <DayHeader fecha={fecha} macros={macros} nEntradas={meals.length} />
 
-      <section>
-        <PortionBars barras={barras} />
-        <MacroSummaryLine macros={macros} />
+      {/* Lo que se comió, en renglones legibles: la superficie principal. */}
+      <section className="flex flex-col gap-4">
+        {plan?.slots.map((slot) => {
+          const delSlot = porSlot.get(slot.clave) ?? [];
+          return (
+            <div key={slot.id}>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  {slot.nombre}
+                  {slot.esOpcional && <span className="normal-case font-normal"> · opcional</span>}
+                </h2>
+                {/* Siempre visible: una segunda entrada en el mismo slot es lo
+                    normal, no la excepción. Antes el `+` desaparecía en cuanto
+                    había un registro y no había forma de agregar otro. */}
+                <Link
+                  href={`/registrar/${slot.clave}`}
+                  aria-label={`Registrar en ${slot.nombre}`}
+                  className="flex size-8 items-center justify-center rounded-full border border-border text-muted active:scale-95"
+                >
+                  <Plus className="size-4" />
+                </Link>
+              </div>
+
+              {delSlot.length > 0 ? (
+                <ul className="mt-1">
+                  {delSlot.map(({ entry, portions }) => (
+                    <MealRow key={entry.id} entry={entry} portions={portions} slotNombre={slot.nombre} />
+                  ))}
+                </ul>
+              ) : (
+                <p className="py-2 text-sm text-muted">Pendiente</p>
+              )}
+            </div>
+          );
+        })}
       </section>
 
-      <section className="flex flex-col gap-3">
-        {plan?.slots.map((slot) => (
-          <MealSlotCard key={slot.id} slot={slot} meals={mealsBySlot.get(slot.clave) ?? []} />
-        ))}
+      {/* Verificación contra el plan: el plan se ejecuta en porciones (§3.1). */}
+      <section className="border-t border-border pt-4">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Porciones</h2>
+        <PortionBars barras={barras} />
+        <MacroSummaryLine macros={macros} />
       </section>
 
       <section className="flex flex-col gap-4 border-t border-border pt-4">
@@ -70,6 +86,6 @@ export default function HoyPage() {
         <WeightTodayCard fecha={fecha} dayLog={dayLog} onChange={() => void refresh()} />
         <DayNoteField fecha={fecha} dayLog={dayLog} onChange={() => void refresh()} />
       </section>
-    </main>
+    </Screen>
   );
 }

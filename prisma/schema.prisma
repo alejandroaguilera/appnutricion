@@ -253,6 +253,18 @@ model MealEntry {
   origen              OrigenMealEntry     @default(app)
   estimacionIa        Json?
   estadoClasificacion EstadoClasificacion @default(clasificado)
+  // Encabezado del renglón en Hoy ("Bistec con nopales"). Sin esto la lista
+  // del día solo podía nombrar comidas que venían de un platillo guardado.
+  titulo              String?
+  confianzaIa         Float?
+  modeloIa            String?
+  fotoPrincipalId     String?
+  // Reclasificación diferida (§3.2 D): si la IA no estaba disponible, la
+  // entrada se guarda igual y se reintenta después. `reclamadaEn` es el
+  // reclamo atómico de un solo uso exigido por §0.7.
+  reclasificacionIntentos    Int       @default(0)
+  reclasificacionReclamadaEn DateTime?
+  ultimoErrorIa              String?
   // Añadida más allá del bloque literal de §2 — exigida por la convención
   // de guarda obligatoria (§0.7) y por el borrado lógico que pedirá §5.4.
   archivadoEn         DateTime?
@@ -263,9 +275,11 @@ model MealEntry {
   slot     PlanMealSlot?      @relation(fields: [planMealSlotId], references: [id])
   dish     Dish?              @relation(fields: [dishId], references: [id])
   portions MealEntryPortion[]
+  photos   MealPhoto[]
 
   @@index([dayLogId])
   @@index([dayLogId, clave])
+  @@index([estadoClasificacion])
 }
 
 model MealEntryPortion {
@@ -273,6 +287,12 @@ model MealEntryPortion {
   mealEntryId String
   foodGroupId String
   foodItemId  String?
+  // Nombre y cantidad tal como los describiría el atleta ("Pechuga de pollo",
+  // "150 g"). El plan se ejecuta en porciones, pero un renglón que solo dice
+  // "AOA 4.0" no se lee; estos campos son lo que hace legible la lista del día.
+  nombre      String?
+  cantidad    String?
+  orden       Int      @default(0)
   porciones   Float
   // Macros congelados al momento del registro (§2) — nunca recalculados
   // retroactivamente si cambian los valores base del FoodGroup.
@@ -289,6 +309,63 @@ model MealEntryPortion {
   @@index([mealEntryId])
 }
 
+// ── Fotos, auditoría y trabajos programados ──────────────────────────────
+
+// Las fotos viven en Postgres y no en disco: la app en Dokploy no tiene
+// volumen persistente, así que un archivo en el contenedor se pierde en cada
+// redespliegue. Se reducen a ~1024 px en el cliente antes de subirlas, así
+// que cada fila ronda los 150-250 KB y `bytea` la mueve a TOAST sola.
+model MealPhoto {
+  id             String          @id // UUID de cliente (app) o de servidor (telegram)
+  mealEntryId    String?
+  mime           String          @default("image/jpeg")
+  ancho          Int?
+  alto           Int?
+  bytes          Int
+  datos          Bytes
+  miniatura      Bytes? // ~128 px, para los renglones de Hoy
+  origen         OrigenMealEntry @default(app)
+  telegramFileId String?
+  archivadoEn    DateTime?
+  creadoEn       DateTime        @default(now())
+
+  // La foto se sube ANTES de que exista la comida (para que un fallo de la IA
+  // nunca la pierda), por eso la relación es opcional.
+  mealEntry MealEntry? @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
+
+  @@index([mealEntryId])
+}
+
+// Bitácora exigida por §5.4.5: ante un conflicto real o un borrado, la
+// versión anterior queda registrada en vez de desaparecer. Sin FK a propósito
+// — tiene que sobrevivir al borrado de la comida que describe.
+model MealEntryAudit {
+  id          String   @id @default(cuid())
+  mealEntryId String
+  snapshot    Json
+  motivo      String // conflicto | edicion | borrado
+  creadoEn    DateTime @default(now())
+
+  @@index([mealEntryId])
+}
+
+// No hay cron en el contenedor ni acceso a shell, así que los envíos
+// programados de §6.7 se modelan como filas y un `setInterval` en proceso las
+// reclama. `reclamadoEn` es el reclamo atómico de un solo uso (§0.7): dos
+// ticks concurrentes no pueden ejecutar el mismo trabajo.
+model ScheduledJob {
+  clave        String    @id // "resumen_diario:2026-08-04"
+  tipo         String
+  ejecutarEn   DateTime
+  reclamadoEn  DateTime?
+  completadoEn DateTime?
+  intentos     Int       @default(0)
+  error        String?
+  creadoEn     DateTime  @default(now())
+
+  @@index([ejecutarEn, completadoEn])
+}
+
 // ── Telegram ─────────────────────────────────────────────────────────────
 // Inerte este ciclo: schema y migración únicamente, sin ninguna ruta ni
 // lógica que las use todavía (§6, fase 10 del spec).
@@ -301,6 +378,12 @@ model TelegramUpdate {
   tipo         TipoTelegramUpdate
   payloadCrudo Json
   mealEntryId  String?
+  intentos     Int                @default(0)
+  error        String?
+
+  // El barrido de updates sin procesar es la red de seguridad del webhook,
+  // que responde 200 antes de terminar de procesar (§6.4).
+  @@index([procesadoEn])
 }
 
 model TelegramSession {

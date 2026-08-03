@@ -15,6 +15,9 @@ export function newOutboxRecord(
     intentos: 0,
     nextAttemptAt: Date.now(),
     permanentError: null,
+    ultimoIntentoEn: null,
+    httpStatus: null,
+    ultimoError: null,
   };
 }
 
@@ -36,10 +39,31 @@ export async function removeOutboxRecord(seq: number): Promise<void> {
 
 export async function markOutboxAttempt(
   seq: number,
-  patch: Partial<Pick<OutboxRecord, "intentos" | "nextAttemptAt" | "permanentError">>
+  patch: Partial<
+    Pick<
+      OutboxRecord,
+      "intentos" | "nextAttemptAt" | "permanentError" | "ultimoIntentoEn" | "httpStatus" | "ultimoError"
+    >
+  >
 ): Promise<void> {
   const db = await getDB();
   const record = await db.get("outbox", seq);
   if (!record) return;
   await db.put("outbox", { ...record, ...patch });
+}
+
+export async function listOutboxErrors(): Promise<OutboxRecord[]> {
+  return (await listOutbox()).filter((r) => r.permanentError || r.intentos >= 3);
+}
+
+// Vuelve a poner un registro en la fila: limpia el error permanente y lo hace
+// elegible de inmediato. Es la acción del botón "Reintentar".
+export async function resetOutboxRecord(seq: number): Promise<void> {
+  await markOutboxAttempt(seq, {
+    permanentError: null,
+    intentos: 0,
+    nextAttemptAt: Date.now(),
+    ultimoError: null,
+    httpStatus: null,
+  });
 }

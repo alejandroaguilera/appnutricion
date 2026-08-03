@@ -23,7 +23,7 @@ export function WeightTodayCard({
   const commit = async () => {
     setEditing(false);
     const n = Number(value);
-    const updated = await updateDayLogField(fecha, dayLog, {
+    const updated = await updateDayLogField(fecha, {
       pesoCorporalKg: value.trim() === "" || Number.isNaN(n) ? null : n,
     });
     onChange(updated);

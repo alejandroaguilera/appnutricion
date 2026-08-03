@@ -36,8 +36,14 @@ export function computeBarras(
         .filter((t) => bucket.claves.includes(t.foodGroup.clave))
         .reduce((acc, t) => acc + t.porcionesDia, 0) ?? 0;
 
+    // `foodGroupClave` viene denormalizada en la porción; el mapa de ids es
+    // solo respaldo para filas escritas antes de que existiera ese campo. Así
+    // las barras no se vacían si algún día se resiembra el catálogo y los
+    // cuid cambian.
     const actual = portions
-      .filter((p) => bucket.claves.includes(claveById.get(p.foodGroupId) as never))
+      .filter((p) =>
+        bucket.claves.includes((p.foodGroupClave ?? claveById.get(p.foodGroupId)) as never)
+      )
       .reduce((acc, p) => acc + p.porciones, 0);
 
     return { id: bucket.id, nombre: bucket.nombre, actual, objetivo, esLibre: bucket.id === "verdura" };

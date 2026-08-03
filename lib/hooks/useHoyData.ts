@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { localDayString } from "@/lib/date";
-import { hydrateDay } from "@/lib/db/hydrateDay";
+import { reconcileDay } from "@/lib/sync/reconcile";
 import { getCachedPlan, getCachedFoodGroups } from "@/lib/db/catalogSync";
 import { getDayLogByFecha } from "@/lib/db/dayLogs";
 import { getMealEntriesForDay, getPortionsForMeal } from "@/lib/db/mealEntries";
@@ -29,9 +29,9 @@ export interface HoyData {
   refresh: () => Promise<void>;
 }
 
-// Estado completo de la pantalla Hoy: intenta traer lo autoritativo del
-// servidor (hydrateDay) y siempre termina leyendo de IndexedDB, para que la
-// pantalla funcione igual online y offline.
+// Estado completo de la pantalla Hoy: reconcilia con el servidor (§5.4) y
+// siempre termina leyendo de IndexedDB, para que la pantalla funcione igual
+// online y offline.
 export function useHoyData(fecha: string = localDayString()): HoyData {
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState<PlanRecord | null>(null);
@@ -40,7 +40,7 @@ export function useHoyData(fecha: string = localDayString()): HoyData {
   const [meals, setMeals] = useState<MealWithPortions[]>([]);
 
   const load = useCallback(async () => {
-    await hydrateDay(fecha);
+    await reconcileDay(fecha);
 
     const [planRecord, groups, dayLogRecord] = await Promise.all([
       getCachedPlan(),
@@ -66,7 +66,25 @@ export function useHoyData(fecha: string = localDayString()): HoyData {
   }, [fecha]);
 
   useEffect(() => {
+    // `load` es async y su primera instrucción es un await, así que ningún
+    // setState ocurre de forma síncrona dentro del efecto; la regla no puede
+    // verlo a través de la frontera async.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
+  }, [load]);
+
+  // Reconciliar al recuperar el foco y al reconectar (§5.4.3) — es como
+  // aparece en la app lo que se registró por Telegram mientras estaba cerrada.
+  useEffect(() => {
+    const alVolver = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("online", alVolver);
+    return () => {
+      document.removeEventListener("visibilitychange", alVolver);
+      window.removeEventListener("online", alVolver);
+    };
   }, [load]);
 
   return { loading, fecha, plan, foodGroups, dayLog, meals, refresh: load };

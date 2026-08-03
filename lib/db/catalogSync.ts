@@ -16,10 +16,15 @@ export async function hydrateCatalog(): Promise<void> {
       fetch("/api/plan"),
     ]);
 
+    // Se limpia antes de escribir: sin esto los ids viejos se acumulaban para
+    // siempre si la base se resembraba, y una porción podía quedar apuntando
+    // a un FoodGroup que ya no existe — un 422 de FK al sincronizar.
     if (catalogRes.ok) {
       const { foodGroups, items }: { foodGroups: FoodGroupRecord[]; items: FoodItemRecord[] } =
         await catalogRes.json();
       const tx = db.transaction(["foodGroups", "catalog"], "readwrite");
+      await tx.objectStore("foodGroups").clear();
+      await tx.objectStore("catalog").clear();
       await Promise.all([
         ...foodGroups.map((g) => tx.objectStore("foodGroups").put(g)),
         ...items.map((i) => tx.objectStore("catalog").put(i)),
@@ -30,6 +35,7 @@ export async function hydrateCatalog(): Promise<void> {
     if (dishesRes.ok) {
       const { dishes }: { dishes: DishRecord[] } = await dishesRes.json();
       const tx = db.transaction("dishes", "readwrite");
+      await tx.store.clear();
       await Promise.all(dishes.map((d) => tx.store.put(d)));
       await tx.done;
     }

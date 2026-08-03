@@ -4,6 +4,7 @@ import { AppInit } from "@/components/shared/AppInit";
 import { ServiceWorkerRegistrar } from "@/components/shared/ServiceWorkerRegistrar";
 import { SyncStatusIndicator } from "@/components/shared/SyncStatusIndicator";
 import { InstallPrompt } from "@/components/shared/InstallPrompt";
+import { TabBar } from "@/components/shell/TabBar";
 
 export const metadata: Metadata = {
   title: "Nutrición",
@@ -33,6 +34,7 @@ export default function RootLayout({
         <AppInit />
         <ServiceWorkerRegistrar />
         {children}
+        <TabBar />
         <SyncStatusIndicator />
         <InstallPrompt />
       </body>

@@ -7,13 +7,16 @@
 // una lista fija de `/_next/static/*` — se cachean en tiempo de ejecución,
 // la primera vez que se piden, con estrategia cache-first (son inmutables).
 
-const CACHE_VERSION = "v1";
+// v2: cambió el shell (barra de pestañas, pantallas nuevas) y desapareció
+// /api/hoy. Sin subir esta versión, un dispositivo con el SW viejo seguiría
+// sirviendo el JS anterior y pidiendo una ruta que ya no existe.
+const CACHE_VERSION = "v2";
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const DATA_CACHE = `data-${CACHE_VERSION}`;
 const KNOWN_CACHES = [SHELL_CACHE, STATIC_CACHE, DATA_CACHE];
 
-const SHELL_URLS = ["/hoy", "/manifest.json"];
+const SHELL_URLS = ["/hoy", "/historial", "/plan", "/ajustes", "/manifest.json"];
 const DATA_ROUTE_PREFIXES = ["/api/catalog", "/api/dishes", "/api/plan"];
 
 self.addEventListener("install", (event) => {

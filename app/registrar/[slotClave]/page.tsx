@@ -16,7 +16,7 @@ import type { DishRecord } from "@/lib/db/types";
 export default function RegistrarSlotPage() {
   const params = useParams<{ slotClave: string }>();
   const router = useRouter();
-  const { loading, fecha, plan, foodGroups, dayLog } = useHoyData();
+  const { loading, fecha, plan, foodGroups } = useHoyData();
   const [dishes, setDishes] = useState<DishRecord[]>([]);
 
   useEffect(() => {
@@ -46,7 +46,6 @@ export default function RegistrarSlotPage() {
   const handleDishSelect = async (dish: DishRecord) => {
     await registerMeal({
       fecha,
-      dayLog: dayLog ?? null,
       slot,
       foodGroups,
       dishId: dish.id,
@@ -62,7 +61,6 @@ export default function RegistrarSlotPage() {
   const handleRepeat = async (found: FoundMeal) => {
     await registerMeal({
       fecha,
-      dayLog: dayLog ?? null,
       slot,
       foodGroups,
       dishId: found.entry.dishId,
@@ -78,7 +76,6 @@ export default function RegistrarSlotPage() {
   const handlePorcionesSueltas = async (porcionesPorGrupo: Map<string, number>) => {
     await registerMeal({
       fecha,
-      dayLog: dayLog ?? null,
       slot,
       foodGroups,
       portionsInput: Array.from(porcionesPorGrupo.entries())

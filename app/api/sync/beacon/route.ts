@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upsertDayLog } from "@/lib/services/dayLog";
 import { upsertMealEntry } from "@/lib/services/mealEntry";
+import { withRoute } from "@/lib/http/route";
+import { logEvent, errorInfo } from "@/lib/log";
 
 interface BeaconItem {
   method: "PUT" | "DELETE" | "POST";
@@ -16,13 +18,19 @@ const MEAL_RE = /^\/api\/days\/([^/]+)\/meals\/([^/]+)$/;
 // de servicio idempotentes que las rutas PUT normales — este es un fallback
 // de entrega best-effort, nunca el mecanismo de durabilidad en sí (eso es la
 // escritura síncrona en IndexedDB, §4).
-export async function POST(req: NextRequest) {
+export const POST = withRoute<unknown>("sync.beacon", async (req: NextRequest) => {
   let items: BeaconItem[];
   try {
     items = await req.json();
   } catch {
-    return NextResponse.json({ error: "invalid payload" }, { status: 400 });
+    return NextResponse.json({ error: true, codigo: "payload_invalido" }, { status: 400 });
   }
+  if (!Array.isArray(items)) {
+    return NextResponse.json({ error: true, codigo: "payload_invalido" }, { status: 400 });
+  }
+
+  let entregados = 0;
+  let fallidos = 0;
 
   for (const item of items) {
     try {
@@ -32,16 +40,21 @@ export async function POST(req: NextRequest) {
       if (mealMatch) {
         const [, dayLogId, mealId] = mealMatch;
         await upsertMealEntry({ ...(item.body as object), id: mealId, dayLogId } as never);
+        entregados++;
       } else if (dayMatch) {
         const [, dayLogId] = dayMatch;
         await upsertDayLog({ ...(item.body as object), id: dayLogId } as never);
+        entregados++;
       }
-    } catch {
+    } catch (err) {
       // Best-effort: un ítem malo en el batch del beacon no debe tirar el
-      // resto. El drenado normal del outbox lo reintentará en la próxima carga.
-      continue;
+      // resto. El drenado normal del outbox lo reintentará. Pero SÍ se
+      // registra — antes se tragaba en silencio y no quedaba rastro alguno.
+      fallidos++;
+      logEvent("beacon_item_error", { url: item.url, ...errorInfo(err) });
     }
   }
 
-  return NextResponse.json({ ok: true });
-}
+  logEvent("beacon", { recibidos: items.length, entregados, fallidos });
+  return NextResponse.json({ ok: true, entregados, fallidos });
+});

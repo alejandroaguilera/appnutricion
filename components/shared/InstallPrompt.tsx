@@ -33,7 +33,8 @@ export function InstallPrompt() {
     };
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
 
-    if (isIosSafariStandaloneCapable()) setShowIosHint(true);
+    // Diferido: depende de navigator/UA, que solo existe tras la hidratación.
+    if (isIosSafariStandaloneCapable()) queueMicrotask(() => setShowIosHint(true));
 
     return () => window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
   }, []);

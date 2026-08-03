@@ -16,3 +16,22 @@ export function computeAdherencePct(
   const sumaDesvio = relevantes.reduce((acc, g) => acc + Math.abs(g.reales - g.objetivo), 0);
   return Math.max(0, 100 - (sumaDesvio / sumaObjetivo) * 100);
 }
+
+// Envoltura para el lado servidor: arma el desglose por grupo a partir del
+// plan y de las porciones congeladas del día, y aplica la fórmula de arriba.
+export function computeAdherencia(
+  plan: { targets: { porcionesDia: number; foodGroup: { clave: string } }[] },
+  portions: { porciones: number; foodGroup: { clave: string } }[]
+): number | null {
+  const reales = new Map<string, number>();
+  for (const p of portions) {
+    reales.set(p.foodGroup.clave, (reales.get(p.foodGroup.clave) ?? 0) + p.porciones);
+  }
+  return computeAdherencePct(
+    plan.targets.map((t) => ({
+      clave: t.foodGroup.clave,
+      reales: reales.get(t.foodGroup.clave) ?? 0,
+      objetivo: t.porcionesDia,
+    }))
+  );
+}
