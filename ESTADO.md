@@ -19,36 +19,51 @@ El spec es el contrato de diseño y no se edita; este archivo es lo que va cambi
 | 7 | Revisión semanal + lógica de sugerencia | ✅ |
 | 8 | Sincronización con `appgym` | ⬜ pendiente |
 | 9 | API de export + markdown | ⬜ pendiente |
-| 10 | Telegram: webhook, comandos, registro | ✅ código listo, falta credencial |
-| 11 | Estimación por texto y foto (`lib/ai/`) | ✅ código listo, falta credencial |
+| 10 | Telegram: webhook, comandos, registro | ✅ activo (@appnutricion_bot) |
+| 11 | Estimación por texto y foto (`lib/ai/`) | ✅ desplegado, bloqueado por créditos de xAI |
 | 12 | Mensajes salientes de Telegram | ✅ resumen diario y revisión dominical |
 
 Fuera de la tabla del §9, también construido: esqueleto de navegación por pestañas,
 pantalla de editar/borrar comida, almacenamiento de fotos, y un programador en
 proceso (no hay cron en el contenedor).
 
-## Bloqueado por credenciales
+## Credenciales
 
-Todo el código de IA y Telegram está desplegado pero inerte. La app compila y
-corre en verde con las variables vacías: `/api/estimate` responde **503** (no 500)
-y el registro se guarda con `estadoClasificacion = pendiente`, con texto y foto
-intactos, para reclasificarse solo cuando haya llave. **Nunca se descarta el registro.**
+Todas cargadas en Dokploy (2026-08-04): `XAI_API_KEY`, `XAI_MODEL`,
+`XAI_VISION_MODEL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `JOBS_SECRET`,
+`TELEGRAM_WEBHOOK_SECRET`, `APP_BASE_URL`, `SCHEDULER_ENABLED`, `XAI_BASE_URL`.
 
-Falta poner en Dokploy:
+Bot: **@appnutricion_bot**. `chat_id` autorizado: `6647020281` (único; cualquier
+otro chat se ignora en silencio, §6.3).
 
-- `XAI_API_KEY`, `XAI_MODEL`, `XAI_VISION_MODEL` — proveedor decidido: **Grok (xAI)**
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — de @BotFather
+### ⚠️ Bloqueo activo: la cuenta de xAI no tiene créditos
 
-Ya puestos: `JOBS_SECRET`, `TELEGRAM_WEBHOOK_SECRET`, `APP_BASE_URL`, `SCHEDULER_ENABLED`, `XAI_BASE_URL`.
+La llave autentica bien, pero **toda llamada devuelve `permission-denied`**:
+*"Your newly created team doesn't have any credits or licenses yet."*
+Se compran en https://console.x.ai/team/48e41434-4e2a-4ae9-9d4f-dd62c33f8fa3
 
-> **No hardcodear el id del modelo de xAI.** Consultar los vigentes con
-> `curl -H "Authorization: Bearer $XAI_API_KEY" https://api.x.ai/v1/models` y
-> verificar con `GET /api/ai/health?probe=1` (header `x-jobs-secret`) antes de
-> darlo por bueno. `aiConfig()` falla cerrado si `XAI_MODEL` no está definido,
-> a propósito: apuntar a un modelo que ya no existe falla con un 404 opaco.
+No es un problema de código. Mientras tanto la app degrada como se diseñó:
+`/api/estimate` responde **503** (no 500) y el registro se guarda con
+`estadoClasificacion = pendiente`, con texto y foto intactos, para que
+`reclassifyPending` lo retome solo. **Nunca se descarta el registro.**
 
-Registrar el webhook una vez que exista el token:
-`POST /api/telegram/setup` con el header `x-jobs-secret`.
+### Lo que se aprendió de la API de xAI
+
+- **La API valida el nombre del modelo ANTES que los créditos.** Eso permite
+  descubrir qué ids existen sin gastar: `permission-denied` = el modelo existe;
+  `invalid-argument: Model not found` = no existe.
+- Existen: `grok-4.5`, `grok-4`, `grok-4-latest`, `grok-4-0709`, `grok-4-fast`,
+  `grok-3`. **No** existen: `grok-4-5`, `grok-4.1`, `grok-beta`,
+  `grok-2-latest`, ni ningún `grok-*-vision-*`.
+- **No hay modelo de visión aparte.** `grok-4.5` acepta el payload multimodal
+  estilo OpenAI (`image_url` con data URL) directamente — verificado enviando
+  un payload real con imagen y viendo que pasó la validación de forma antes de
+  toparse con los créditos. Por eso `XAI_MODEL` y `XAI_VISION_MODEL` son el mismo.
+- `/v1/models` devuelve 403 sin créditos, así que no sirve para descubrir ids
+  en una cuenta nueva; hay que sondear con `chat/completions`.
+
+Verificar con `GET /api/ai/health?probe=1` (header `x-jobs-secret`).
+`aiConfig()` falla cerrado si `XAI_MODEL` no está definido, a propósito.
 
 ## Decisiones que se apartan del spec
 
