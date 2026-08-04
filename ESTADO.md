@@ -100,6 +100,20 @@ sesión las "arreglaría" de vuelta.
    instalarlo. `instrumentation.ts` arranca un `setInterval`, pero el estado
    vive en la tabla `ScheduledJob` con reclamo atómico, así que un reinicio no
    pierde ni duplica trabajos. `POST /api/jobs/tick` lo corre a mano.
+7. **Editar por alimento, no por grupo.** El §3.2-C piensa en grupos
+   abstractos, pero "AOA muy bajo aporte de grasa: 3" no le dice nada a nadie.
+   El editor muestra alimentos reales con su equivalencia (`cantidadPorcion`,
+   poblado en los 152 ítems del catálogo) y las kcal derivadas. Los gramos
+   solo aparecen cuando se conocen de verdad (22 de 152): el catálogo del SMAE
+   habla en medidas caseras, y un gramaje inventado sería peor que ninguno.
+8. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
+   es clave primaria y solo cabe una fila por chat; sin el sufijo, empezar una
+   conversación destruiría una estimación pendiente de confirmar.
+9. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
+   en `?`, empieza con `¿`, o arranca con qué/cuánto/cómo/puedo…), sin gastar
+   una llamada al modelo para adivinar la intención. Una foto siempre es
+   comida. Ante duda se responde **y** se ofrece registrar, para no tragarse
+   una intención de registro.
 
 ## Restricciones del entorno
 
@@ -117,6 +131,31 @@ sesión las "arreglaría" de vuelta.
 - La verificación real es `curl` contra la URL en vivo. No hay runtime local.
 
 ## Historia que conviene no repetir
+
+### El registro por IA que nunca llegó (4 de agosto de 2026)
+
+Una comida registrada en la app con estimación de IA desapareció. No fue un
+borrado: **nunca llegó al servidor**. `ConfirmarEstimacion` armaba las
+porciones sin `foodItemId`; `JSON.stringify` elimina las claves `undefined`; y
+el esquema del servidor la exigía presente, porque **`z.string().nullable()`
+requiere que la clave venga, a diferencia de `.nullish()`**. Resultado: 422 →
+`permanentError` → nunca reenviado. Telegram no lo sufría porque construye las
+porciones del lado del servidor.
+
+Lo que lo hizo posible: un `as RegisterPortionInput[]`. **El cast le ocultó a
+TypeScript un campo faltante que habría atrapado en compilación.** Un cast en
+la frontera entre lo que se construye y lo que se envía es exactamente donde
+no debe haber uno.
+
+Reglas:
+- En un DTO de red, **`.nullish()` para todo campo opcional**, nunca
+  `.nullable()`. Un campo omitido no debe costar un dato del atleta.
+- **Ningún `as` entre la construcción de un payload y su envío.** Si los tipos
+  no calzan, es que falta algo.
+- **"Descartar" tiene que borrar el registro local también.** Quitar solo la
+  fila del outbox dejaba una comida huérfana que la reconciliación podaba
+  después, en silencio.
+
 
 Los registros del 3 de agosto de 2026 nunca llegaron a Postgres y nadie se
 enteró durante días. Prisma serializa una columna `@db.Date` como ISO completo
