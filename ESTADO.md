@@ -103,19 +103,18 @@ sesión las "arreglaría" de vuelta.
 7. **Editar por alimento, no por grupo.** El §3.2-C piensa en grupos
    abstractos, pero "AOA muy bajo aporte de grasa: 3" no le dice nada a nadie.
    El editor muestra alimentos reales con su equivalencia (`cantidadPorcion`,
-   poblado en los 152 ítems del catálogo) y las kcal derivadas. Los gramos
-   solo aparecen cuando se conocen de verdad (22 de 152): el catálogo del SMAE
-   habla en medidas caseras, y un gramaje inventado sería peor que ninguno.
-8. **Gramos solo cuando se conocen.** 19 de 149 ítems tienen peso real; el
-   resto del catálogo SMAE habla en medidas caseras ("3 tazas", "20 piezas").
-   El editor muestra `cantidadPorcion` siempre y gramos solo cuando existen —
-   un gramaje inventado sería peor que ninguno. `applyDataFixups` rellena los
-   que el parser ampliado sabe leer, y corre fuera del early-return del seed
-   porque ahí adentro nada vuelve a ejecutarse.
-9. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
+   poblado en **149 de 149** ítems no archivados) y las kcal derivadas.
+
+   **Los gramos solo aparecen cuando se conocen de verdad: 19 de 149.** El
+   catálogo del SMAE habla en medidas caseras ("3 tazas", "20 piezas"), y un
+   gramaje inventado sería peor que ninguno. `applyDataFixups` rellena los que
+   el parser ampliado sabe leer, y corre **fuera** del early-return de
+   `seedDatabase` — ahí adentro nada vuelve a ejecutarse una vez sembrado, así
+   que mejorar el parser no habría tenido ningún efecto en producción.
+8. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
    es clave primaria y solo cabe una fila por chat; sin el sufijo, empezar una
    conversación destruiría una estimación pendiente de confirmar.
-10. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
+9. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
    en `?`, empieza con `¿`, o arranca con qué/cuánto/cómo/puedo…), sin gastar
    una llamada al modelo para adivinar la intención. Una foto siempre es
    comida. Ante duda se responde **y** se ofrece registrar, para no tragarse
