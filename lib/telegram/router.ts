@@ -13,8 +13,26 @@ import {
   botonesAjuste,
   macrosDe,
 } from "./registro";
-import { estadoDelDia, AYUDA, tarjetaEstimacion } from "./mensajes";
+import { estadoDelDia, AYUDA, tarjetaEstimacion, escaparHtml } from "./mensajes";
+import { responderPregunta } from "@/lib/ai/chat";
+import { leerHistorial, guardarHistorial, olvidarHistorial } from "./chatSesion";
+import { AiUnavailableError } from "@/lib/ai/provider";
+import { enviarAccion } from "./api";
 import type { PlanMealSlotClave } from "@prisma/client";
+
+// Una pregunta se contesta, no se registra como comida. Heurística barata: no
+// gasta una llamada al modelo solo para adivinar la intención.
+// Ojo con `\b` aquí: en regex de JavaScript las vocales acentuadas NO son
+// caracteres de palabra, así que `qué\b` no casa con "qué preparo" (entre "é"
+// y el espacio no hay frontera). Se usa un lookahead explícito en su lugar.
+const ARRANQUE_PREGUNTA =
+  /^(qué|que|cuál|cual|cuánt\w*|cuant\w*|cómo|como|dónde|donde|por\s+qué|porque|puedo|debo|sirve|conviene|recomiend\w*|me sugieres|dame|hay algo|está bien|esta bien)(?=\s|$|[?,.])/i;
+
+function pareceConsulta(texto: string): boolean {
+  const t = texto.trim();
+  if (t.endsWith("?") || t.startsWith("¿")) return true;
+  return ARRANQUE_PREGUNTA.test(t);
+}
 
 const SLOT_POR_COMANDO: Record<string, PlanMealSlotClave> = {
   desayuno: "desayuno",
@@ -92,6 +110,18 @@ async function manejarMensaje(update: TelegramUpdate): Promise<string | null> {
       case "deshacer":
         await deshacer(chatId);
         return null;
+      case "chat":
+        if (!argumento) {
+          await sendMessage(chatId, "Pregúntame algo: <code>/chat ¿qué puedo cenar hoy?</code>");
+          return null;
+        }
+        await responderChat(chatId, argumento);
+        return null;
+      case "olvida":
+      case "olvidar":
+        await olvidarHistorial(chatId);
+        await sendMessage(chatId, "Listo, empezamos de cero.");
+        return null;
       default: {
         const slot = SLOT_POR_COMANDO[comando];
         if (!slot) {
@@ -104,6 +134,13 @@ async function manejarMensaje(update: TelegramUpdate): Promise<string | null> {
   }
 
   if (!texto && !msg.photo) return null;
+
+  // Una foto SIEMPRE es comida: nadie manda una foto para preguntar algo.
+  // Solo el texto suelto puede ser una consulta.
+  if (!msg.photo && pareceConsulta(texto)) {
+    await responderChat(chatId, texto, { ofrecerRegistro: !texto.trim().endsWith("?") });
+    return null;
+  }
 
   // Sin comando, la hora decide el slot (§6.5). Siempre modificable en la
   // confirmación.
@@ -221,6 +258,38 @@ async function manejarCallback(update: TelegramUpdate): Promise<string | null> {
 
   await answerCallbackQuery(cq.id);
   return null;
+}
+
+// Consulta abierta. Mantiene el hilo 30 min para poder repreguntar ("¿y si no
+// tengo pollo?") sin repetir el contexto.
+async function responderChat(
+  chatId: string,
+  pregunta: string,
+  opts: { ofrecerRegistro?: boolean } = {}
+): Promise<void> {
+  // grok-4.5 tarda 12-20 s; sin la señal de "escribiendo" el chat parece muerto.
+  await enviarAccion(chatId, "typing");
+
+  try {
+    const historial = await leerHistorial(chatId);
+    const res = await responderPregunta({ pregunta, historial });
+    await guardarHistorial(chatId, res.historial);
+
+    // La heurística puede confundir un registro con una pregunta ("que me comí
+    // 3 huevos"). Cuando hay duda se responde Y se ofrece registrar, en vez de
+    // tragarse la intención en silencio.
+    const coletilla = opts.ofrecerRegistro
+      ? "\n\n<i>Si querías registrarlo, escríbelo empezando con /comida o /cena.</i>"
+      : "";
+
+    await sendMessage(chatId, escaparHtml(res.texto) + coletilla);
+  } catch (err) {
+    if (err instanceof AiUnavailableError) {
+      await sendMessage(chatId, "Ahorita no puedo responder consultas. Inténtalo en un rato.");
+      return;
+    }
+    throw err;
+  }
 }
 
 function restarUnDia(fecha: string): string {

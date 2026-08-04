@@ -70,7 +70,8 @@ export function SyncErrorSheet({
                 Cambios sin guardar
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-muted">
-                Están seguros en este dispositivo. No se han podido enviar al servidor.
+                Están seguros en este dispositivo, pero no se han podido enviar al servidor.
+                Descartar borra el registro también aquí.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -117,7 +118,7 @@ export function SyncErrorSheet({
                         disabled={ocupado}
                         onClick={() => conAccion(() => discardOutboxRecord(rec.seq!))}
                       >
-                        Descartar
+                        Descartar el registro
                       </Button>
                     </div>
                   </li>

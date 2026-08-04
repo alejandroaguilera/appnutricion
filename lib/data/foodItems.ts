@@ -192,7 +192,21 @@ export const FOOD_ITEMS_BY_GROUP: Record<FoodGroupClave, RawFoodItem[]> = {
   libre: [],
 };
 
+// Extrae el peso en gramos de una medida casera del SMAE, para poder mostrar
+// "3 porciones ≈ 90 g" en el editor. Antes solo casaba un "N g" al principio
+// de la cadena y dejaba 132 de 152 ítems sin gramos, incluyendo casos tan
+// obvios como "80-90 g" o "1/3 taza (80 g)".
+//
+// Excluye a propósito "7 g proteína": ahí los gramos son de macronutriente,
+// no de peso del alimento. Mostrarlos como peso sería un dato falso, y un
+// dato falso es peor que ninguno.
 export function parseGramos(cantidadPorcion: string): number | null {
-  const m = cantidadPorcion.match(/^(\d+(?:\.\d+)?)\s?g\b/i);
-  return m ? Number(m[1]) : null;
+  const texto = cantidadPorcion.toLowerCase();
+
+  // Rango ("80-90 g"): se toma el extremo bajo, para no sobreestimar.
+  const rango = texto.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*g\b(?!\s*(?:de\s+)?(?:proteína|proteina|prot))/);
+  if (rango) return Number(rango[1]);
+
+  const simple = texto.match(/(\d+(?:\.\d+)?)\s*g\b(?!\s*(?:de\s+)?(?:proteína|proteina|prot))/);
+  return simple ? Number(simple[1]) : null;
 }

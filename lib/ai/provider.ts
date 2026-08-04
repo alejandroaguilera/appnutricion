@@ -51,13 +51,27 @@ export interface RespuestaChat {
 // Cliente mínimo compatible con la API de chat completions de xAI. Sin SDK:
 // es una sola llamada, y una dependencia menos es una dependencia menos que
 // romper el layout de node_modules del Dockerfile.
+export interface MensajeChat {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export async function xaiChat(args: {
   modelo: string;
   system: string;
-  user: ContenidoUsuario[];
+  /** Turno único con contenido multimodal (estimación). */
+  user?: ContenidoUsuario[];
+  /** Conversación de varios turnos (`/chat`). Excluyente con `user`. */
+  mensajes?: MensajeChat[];
   maxTokens?: number;
   timeoutMs?: number;
   temperatura?: number;
+  /**
+   * La estimación exige JSON estricto; una respuesta conversacional es prosa
+   * y con `json_object` activo saldría envuelta en JSON o fallaría. Por
+   * defecto va en true para no alterar el camino de estimación.
+   */
+  formatoJson?: boolean;
 }): Promise<RespuestaChat> {
   const cfg = aiConfig();
   if (!cfg.apiKey) throw new AiUnavailableError("sin_llave");
@@ -83,10 +97,10 @@ export async function xaiChat(args: {
         model: args.modelo,
         temperature: args.temperatura ?? 0.2,
         max_tokens: args.maxTokens ?? 1200,
-        response_format: { type: "json_object" },
+        ...(args.formatoJson === false ? {} : { response_format: { type: "json_object" } }),
         messages: [
           { role: "system", content: args.system },
-          { role: "user", content: args.user },
+          ...(args.mensajes ?? [{ role: "user" as const, content: args.user ?? [] }]),
         ],
       }),
     });

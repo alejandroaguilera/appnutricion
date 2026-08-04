@@ -11,20 +11,18 @@ import { computePortionMacros } from "@/lib/nutrition/groups";
 import { triggerFlush } from "@/lib/sync/flush";
 import { Screen } from "@/components/shell/Screen";
 import { Button } from "@/components/ui/button";
-import { PorcionesSueltasGrid } from "@/components/registrar/PorcionesSueltasGrid";
+import { EditorPorciones, type PorcionEditable } from "@/components/registrar/EditorPorciones";
 import type { MealEntryRecord, MealEntryPortionRecord } from "@/lib/db/types";
 
-// Editar y borrar: hasta ahora no existía ninguna de las dos cosas. Un
-// registro equivocado no se podía corregir ni quitar desde la app.
 export default function EditarComidaPage() {
   const { mealId } = useParams<{ mealId: string }>();
   const router = useRouter();
-  const { plan, foodGroups } = useHoyData();
+  const { plan, foodGroups, foodItems } = useHoyData();
 
   const [entry, setEntry] = useState<MealEntryRecord | null>(null);
-  const [portions, setPortions] = useState<MealEntryPortionRecord[]>([]);
   const [fecha, setFecha] = useState<string | null>(null);
   const [titulo, setTitulo] = useState("");
+  const [porciones, setPorciones] = useState<PorcionEditable[]>([]);
   const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
@@ -32,50 +30,57 @@ export default function EditarComidaPage() {
       const e = await getMealEntry(mealId);
       if (!e) return;
       const dia = await getDayLog(e.dayLogId);
+      const previas = await getPortionsForMeal(mealId);
       setEntry(e);
       setTitulo(e.titulo ?? "");
-      setPortions(await getPortionsForMeal(mealId));
       setFecha(dia?.fecha ?? null);
+      // Cada porción guardada se vuelve un renglón editable independiente: así
+      // dos alimentos del mismo grupo dejan de pisarse entre sí, que es lo que
+      // pasaba al editar por grupo agregado.
+      setPorciones(
+        previas.map((p) => ({
+          id: p.id,
+          foodGroupId: p.foodGroupId,
+          foodItemId: p.foodItemId,
+          nombre: p.nombre,
+          cantidad: p.cantidad,
+          porciones: p.porciones,
+        }))
+      );
     })();
   }, [mealId]);
 
-  const valoresIniciales = new Map(portions.map((p) => [p.foodGroupId, p.porciones]));
-
-  const guardar = useCallback(
-    async (porcionesPorGrupo: Map<string, number>) => {
-      if (!entry || !fecha) return;
-      setGuardando(true);
-      try {
-        const groupById = new Map(foodGroups.map((g) => [g.id, g]));
-        const nuevas: MealEntryPortionRecord[] = [];
-        let orden = 0;
-        for (const [foodGroupId, valor] of porcionesPorGrupo) {
-          if (valor <= 0) continue;
-          const grupo = groupById.get(foodGroupId);
-          if (!grupo) continue;
-          const previa = portions.find((p) => p.foodGroupId === foodGroupId);
-          nuevas.push({
-            id: previa?.id ?? crypto.randomUUID(),
-            mealEntryId: entry.id,
-            foodGroupId,
-            foodGroupClave: grupo.clave,
-            foodItemId: previa?.foodItemId ?? null,
-            nombre: previa?.nombre ?? null,
-            cantidad: previa?.cantidad ?? null,
-            orden: orden++,
-            porciones: valor,
-            ...computePortionMacros(grupo, valor),
-          });
-        }
-        await updateMealEntry({ ...entry, titulo: titulo.trim() || null }, nuevas, fecha);
-        void triggerFlush("visible");
-        router.push("/hoy");
-      } finally {
-        setGuardando(false);
+  const guardar = useCallback(async () => {
+    if (!entry || !fecha) return;
+    setGuardando(true);
+    try {
+      const groupById = new Map(foodGroups.map((g) => [g.id, g]));
+      const nuevas: MealEntryPortionRecord[] = [];
+      let orden = 0;
+      for (const p of porciones) {
+        if (p.porciones <= 0) continue;
+        const grupo = groupById.get(p.foodGroupId);
+        if (!grupo) continue;
+        nuevas.push({
+          id: p.id,
+          mealEntryId: entry.id,
+          foodGroupId: p.foodGroupId,
+          foodGroupClave: grupo.clave,
+          foodItemId: p.foodItemId,
+          nombre: p.nombre,
+          cantidad: p.cantidad,
+          orden: orden++,
+          porciones: p.porciones,
+          ...computePortionMacros(grupo, p.porciones),
+        });
       }
-    },
-    [entry, fecha, foodGroups, portions, titulo, router]
-  );
+      await updateMealEntry({ ...entry, titulo: titulo.trim() || null }, nuevas, fecha);
+      void triggerFlush("visible");
+      router.push("/hoy");
+    } finally {
+      setGuardando(false);
+    }
+  }, [entry, fecha, foodGroups, porciones, titulo, router]);
 
   const eliminar = useCallback(async () => {
     if (!entry || !fecha) return;
@@ -133,14 +138,18 @@ export default function EditarComidaPage() {
       )}
 
       <section>
-        <h2 className="mb-2 text-sm font-medium text-muted">Porciones</h2>
-        <PorcionesSueltasGrid
+        <h2 className="mb-2 text-sm font-medium text-muted">Alimentos</h2>
+        <EditorPorciones
+          porciones={porciones}
           foodGroups={foodGroups}
-          valoresIniciales={valoresIniciales}
-          textoBoton="Guardar cambios"
-          onSubmit={guardar}
+          foodItems={foodItems}
+          onChange={setPorciones}
         />
       </section>
+
+      <Button size="lg" disabled={guardando} onClick={() => void guardar()}>
+        {guardando ? "Guardando…" : "Guardar cambios"}
+      </Button>
 
       <Button variant="ghost" disabled={guardando} onClick={() => void eliminar()} className="text-danger">
         <Trash2 />

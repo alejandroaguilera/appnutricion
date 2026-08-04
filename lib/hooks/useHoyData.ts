@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { localDayString } from "@/lib/date";
 import { reconcileDay } from "@/lib/sync/reconcile";
-import { getCachedPlan, getCachedFoodGroups } from "@/lib/db/catalogSync";
+import { getCachedPlan, getCachedFoodGroups, getCachedCatalog } from "@/lib/db/catalogSync";
 import { getDayLogByFecha } from "@/lib/db/dayLogs";
 import { getMealEntriesForDay, getPortionsForMeal } from "@/lib/db/mealEntries";
 import type {
   PlanRecord,
   FoodGroupRecord,
+  FoodItemRecord,
   DayLogRecord,
   MealEntryRecord,
   MealEntryPortionRecord,
@@ -24,6 +25,9 @@ export interface HoyData {
   fecha: string;
   plan: PlanRecord | null;
   foodGroups: FoodGroupRecord[];
+  // El catálogo ya estaba en IndexedDB pero ninguna pantalla lo tenía en la
+  // mano; sin él el editor no puede decir cuánto vale una porción.
+  foodItems: FoodItemRecord[];
   dayLog: DayLogRecord | null;
   meals: MealWithPortions[];
   refresh: () => Promise<void>;
@@ -36,20 +40,23 @@ export function useHoyData(fecha: string = localDayString()): HoyData {
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState<PlanRecord | null>(null);
   const [foodGroups, setFoodGroups] = useState<FoodGroupRecord[]>([]);
+  const [foodItems, setFoodItems] = useState<FoodItemRecord[]>([]);
   const [dayLog, setDayLog] = useState<DayLogRecord | null>(null);
   const [meals, setMeals] = useState<MealWithPortions[]>([]);
 
   const load = useCallback(async () => {
     await reconcileDay(fecha);
 
-    const [planRecord, groups, dayLogRecord] = await Promise.all([
+    const [planRecord, groups, items, dayLogRecord] = await Promise.all([
       getCachedPlan(),
       getCachedFoodGroups(),
+      getCachedCatalog(),
       getDayLogByFecha(fecha),
     ]);
 
     setPlan(planRecord);
     setFoodGroups(groups);
+    setFoodItems(items);
     setDayLog(dayLogRecord ?? null);
 
     if (dayLogRecord) {
@@ -87,5 +94,5 @@ export function useHoyData(fecha: string = localDayString()): HoyData {
     };
   }, [load]);
 
-  return { loading, fecha, plan, foodGroups, dayLog, meals, refresh: load };
+  return { loading, fecha, plan, foodGroups, foodItems, dayLog, meals, refresh: load };
 }

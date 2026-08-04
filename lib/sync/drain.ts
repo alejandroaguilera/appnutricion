@@ -158,7 +158,31 @@ export async function retryAllPermanent(): Promise<void> {
   await drainOutbox();
 }
 
+// Descartar quita la escritura pendiente Y el registro local que la generó.
+//
+// Antes solo quitaba la fila del outbox, y la comida quedaba huérfana: el
+// servidor nunca la conoció, así que la siguiente reconciliación la podaba en
+// silencio y desaparecía de la pantalla sin que nadie se enterara. Borrar las
+// dos cosas juntas deja un estado coherente y hace que el botón signifique
+// exactamente lo que dice.
 export async function discardOutboxRecord(seq: number): Promise<void> {
-  await removeOutboxRecord(seq);
+  const db = await getDB();
+  const record = await db.get("outbox", seq);
+
+  const mealId = record?.url.match(/\/meals\/([^/?]+)/)?.[1] ?? null;
+
+  if (mealId) {
+    const tx = db.transaction(["mealEntries", "mealEntryPortions", "outbox"], "readwrite");
+    await tx.objectStore("mealEntries").delete(mealId);
+    const portions = tx.objectStore("mealEntryPortions");
+    for (const k of await portions.index("by-mealEntryId").getAllKeys(mealId)) {
+      await portions.delete(k);
+    }
+    await tx.objectStore("outbox").delete(seq);
+    await tx.done;
+  } else {
+    await removeOutboxRecord(seq);
+  }
+
   notifySyncStatusChanged();
 }

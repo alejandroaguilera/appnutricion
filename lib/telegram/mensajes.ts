@@ -6,6 +6,14 @@ import type { Estimacion } from "@/lib/ai/schema";
 // tristes. Un día fuera de objetivo se reporta como dato neutro. Un bot que
 // regaña se silencia, y un bot silenciado no sirve.
 
+// Todo mensaje sale con parse_mode HTML, y `llamar` en api.ts se traga los
+// fallos en silencio: un `<` suelto en la prosa del modelo haría que la
+// respuesta simplemente no se envíe y nadie se entere. Toda salida del modelo
+// pasa por aquí.
+export function escaparHtml(texto: string): string {
+  return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 const EMOJI_SLOT: Record<string, string> = {
   desayuno: "🍳",
   snack_am: "🍎",
@@ -85,7 +93,14 @@ export const AYUDA = `<b>Cómo registrar</b>
 Escribe lo que comiste y ya: <i>"3 huevos, 2 tortillas y aguacate"</i>.
 También puedes mandar una foto, con o sin descripción.
 
+<b>Preguntar</b>
+
+Si escribes una pregunta te contesto en vez de registrarla:
+<i>"¿qué puedo cenar hoy?"</i>, <i>"¿cuántas calorías tiene una cerveza?"</i>.
+También puedes forzarlo con /chat.
+
 <b>Comandos</b>
+/chat + pregunta — consulta nutricional abierta
 /desayuno /comida /cena /snack + texto — registra en ese momento
 /agua 500 — suma 500 ml
 /peso 84.3 — registra el peso de hoy

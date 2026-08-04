@@ -3,9 +3,13 @@ import { z } from "zod";
 const portionSchema = z.object({
   id: z.string().uuid(),
   foodGroupId: z.string(),
-  foodItemId: z.string().nullable(),
-  // Nombre y cantidad legibles del ítem. `nullish` para que un cliente que
-  // todavía no los manda siga validando.
+  // `nullish` y no `nullable`: con `nullable` la CLAVE tiene que venir
+  // presente, y JSON.stringify elimina las claves `undefined`. Una porción
+  // armada sin `foodItemId` producía un 422, el outbox la marcaba como error
+  // permanente y el registro se perdía en silencio. Un campo omitido no debe
+  // costar un dato del atleta.
+  foodItemId: z.string().nullish(),
+  // Nombre y cantidad legibles del ítem.
   nombre: z.string().max(120).nullish(),
   cantidad: z.string().max(60).nullish(),
   orden: z.number().int().nullish(),

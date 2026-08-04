@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useHoyData } from "@/lib/hooks/useHoyData";
-import { registerMeal, type RegisterPortionInput } from "@/lib/logic/registerMeal";
+import { registerMeal } from "@/lib/logic/registerMeal";
 import { getCachedDishes } from "@/lib/db/catalogSync";
 import { SLOT_TO_TIPO_COMIDA } from "@/lib/data/plan";
 import { triggerFlush } from "@/lib/sync/flush";
@@ -20,7 +20,7 @@ import type { DishRecord } from "@/lib/db/types";
 export default function RegistrarSlotPage() {
   const params = useParams<{ slotClave: string }>();
   const router = useRouter();
-  const { loading, fecha, plan, foodGroups } = useHoyData();
+  const { loading, fecha, plan, foodGroups, foodItems } = useHoyData();
   const [dishes, setDishes] = useState<DishRecord[]>([]);
   const [estimacion, setEstimacion] = useState<ResultadoEstimacion | null>(null);
   const [manual, setManual] = useState(false);
@@ -113,7 +113,7 @@ export default function RegistrarSlotPage() {
       textoLibre: r.texto || null,
       confianzaIa: r.estimacion.confianza,
       fotoPrincipalId: r.fotoId,
-      portionsInput: porciones as RegisterPortionInput[],
+      portionsInput: porciones,
     });
   };
 
@@ -144,6 +144,7 @@ export default function RegistrarSlotPage() {
         <ConfirmarEstimacion
           resultado={estimacion}
           foodGroups={foodGroups}
+          foodItems={foodItems}
           onConfirmar={handleConfirmar}
           onCancelar={() => setEstimacion(null)}
         />

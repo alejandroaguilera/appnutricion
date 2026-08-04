@@ -74,6 +74,12 @@ export function editMessageText(
   });
 }
 
+// "escribiendo…" en el chat. Sin esto, los 12-20 s que tarda el modelo se
+// ven como si el bot se hubiera muerto.
+export function enviarAccion(chatId: string, accion: "typing" = "typing") {
+  return llamar("sendChatAction", { chat_id: chatId, action: accion });
+}
+
 export function answerCallbackQuery(callbackQueryId: string, text?: string) {
   return llamar("answerCallbackQuery", { callback_query_id: callbackQueryId, text });
 }
