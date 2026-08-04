@@ -4,7 +4,7 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-08-04
+**Última actualización:** 2026-08-04 (ronda 3)
 
 ## Fases
 
@@ -106,10 +106,16 @@ sesión las "arreglaría" de vuelta.
    poblado en los 152 ítems del catálogo) y las kcal derivadas. Los gramos
    solo aparecen cuando se conocen de verdad (22 de 152): el catálogo del SMAE
    habla en medidas caseras, y un gramaje inventado sería peor que ninguno.
-8. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
+8. **Gramos solo cuando se conocen.** 19 de 149 ítems tienen peso real; el
+   resto del catálogo SMAE habla en medidas caseras ("3 tazas", "20 piezas").
+   El editor muestra `cantidadPorcion` siempre y gramos solo cuando existen —
+   un gramaje inventado sería peor que ninguno. `applyDataFixups` rellena los
+   que el parser ampliado sabe leer, y corre fuera del early-return del seed
+   porque ahí adentro nada vuelve a ejecutarse.
+9. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
    es clave primaria y solo cabe una fila por chat; sin el sufijo, empezar una
    conversación destruiría una estimación pendiente de confirmar.
-9. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
+10. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
    en `?`, empieza con `¿`, o arranca con qué/cuánto/cómo/puedo…), sin gastar
    una llamada al modelo para adivinar la intención. Una foto siempre es
    comida. Ante duda se responde **y** se ofrece registrar, para no tragarse
