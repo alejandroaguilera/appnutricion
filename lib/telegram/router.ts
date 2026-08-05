@@ -2,7 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { localDayString } from "@/lib/date";
 import { currentSlotForTime } from "@/lib/logic/mealSlot";
 import { logEvent, errorInfo } from "@/lib/log";
-import { sendMessage, editMessageText, answerCallbackQuery, descargarFoto } from "./api";
+import {
+  sendMessage,
+  editMessageText,
+  answerCallbackQuery,
+  descargarFoto,
+  descargarArchivo,
+} from "./api";
 import {
   proponerRegistro,
   confirmarRegistro,
@@ -16,7 +22,8 @@ import {
 import { estadoDelDia, AYUDA, tarjetaEstimacion, escaparHtml } from "./mensajes";
 import { responderPregunta } from "@/lib/ai/chat";
 import { leerHistorial, guardarHistorial, olvidarHistorial } from "./chatSesion";
-import { AiUnavailableError } from "@/lib/ai/provider";
+import { AiUnavailableError, MOTIVO_LEGIBLE } from "@/lib/ai/provider";
+import { transcribirAudio, transcripcionConfig } from "@/lib/ai/transcribe";
 import { enviarAccion } from "./api";
 import type { PlanMealSlotClave } from "@prisma/client";
 
@@ -42,6 +49,13 @@ const SLOT_POR_COMANDO: Record<string, PlanMealSlotClave> = {
   postgym: "post_gym",
 };
 
+interface ArchivoTelegram {
+  file_id: string;
+  file_size?: number;
+  mime_type?: string;
+  duration?: number;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: {
@@ -50,6 +64,12 @@ export interface TelegramUpdate {
     text?: string;
     caption?: string;
     photo?: { file_id: string; file_size?: number; width: number; height: number }[];
+    /** Nota de voz (el micrófono de Telegram). OGG/Opus. */
+    voice?: ArchivoTelegram;
+    /** Archivo de audio adjunto (mp3, m4a…). */
+    audio?: ArchivoTelegram;
+    /** Mensaje redondo de video: se transcribe su pista de audio. */
+    video_note?: ArchivoTelegram;
   };
   callback_query?: {
     id: string;
@@ -76,8 +96,21 @@ export async function procesarUpdate(update: TelegramUpdate): Promise<string | n
 async function manejarMensaje(update: TelegramUpdate): Promise<string | null> {
   const msg = update.message!;
   const chatId = String(msg.chat.id);
-  const texto = (msg.text ?? msg.caption ?? "").trim();
 
+  // Una nota de voz se convierte en texto y a partir de ahí recorre EXACTAMENTE
+  // el mismo camino que si se hubiera escrito: comandos, heurística de
+  // pregunta, slot por hora. Nada duplicado.
+  const audio = msg.voice ?? msg.audio ?? msg.video_note;
+  if (audio) return await manejarVoz(chatId, msg, audio);
+
+  return await procesarTexto(chatId, msg, (msg.text ?? msg.caption ?? "").trim());
+}
+
+async function procesarTexto(
+  chatId: string,
+  msg: NonNullable<TelegramUpdate["message"]>,
+  texto: string
+): Promise<string | null> {
   // Comandos que no registran comida.
   if (texto.startsWith("/")) {
     const [crudo, ...resto] = texto.split(/\s+/);
@@ -110,13 +143,26 @@ async function manejarMensaje(update: TelegramUpdate): Promise<string | null> {
       case "deshacer":
         await deshacer(chatId);
         return null;
-      case "chat":
-        if (!argumento) {
+      case "chat": {
+        // `/chat` puede venir como pie de una foto ("/chat ¿esto tiene
+        // cafeína?"). Antes la foto se tiraba en silencio y el modelo
+        // contestaba, con razón, que no veía ningún producto.
+        const foto = await bajarFotoDelMensaje(msg);
+        if (foto.hay && !foto.imagen) {
+          await avisarFotoNoDescargada(chatId);
+          return null;
+        }
+        if (!argumento && !foto.imagen) {
           await sendMessage(chatId, "Pregúntame algo: <code>/chat ¿qué puedo cenar hoy?</code>");
           return null;
         }
-        await responderChat(chatId, argumento);
+        await responderChat(
+          chatId,
+          argumento || "¿Qué es esto? Descríbelo y dime qué aporta.",
+          { imagen: foto.imagen }
+        );
         return null;
+      }
       case "olvida":
       case "olvidar":
         await olvidarHistorial(chatId);
@@ -135,16 +181,51 @@ async function manejarMensaje(update: TelegramUpdate): Promise<string | null> {
 
   if (!texto && !msg.photo) return null;
 
-  // Una foto SIEMPRE es comida: nadie manda una foto para preguntar algo.
-  // Solo el texto suelto puede ser una consulta.
-  if (!msg.photo && pareceConsulta(texto)) {
-    await responderChat(chatId, texto, { ofrecerRegistro: !texto.trim().endsWith("?") });
+  // Una foto con un pie de foto interrogativo se CONTESTA, no se registra
+  // ("¿este producto tiene cafeína?"). Antes toda foto era comida por
+  // definición, así que la pregunta se perdía y llegaba una tarjeta de
+  // estimación. Siempre se ofrece registrar al final, para no tragarse la
+  // otra intención. Foto sin pie, o con descripción normal, sigue siendo
+  // comida.
+  if (pareceConsulta(texto)) {
+    const foto = await bajarFotoDelMensaje(msg);
+    if (foto.hay && !foto.imagen) {
+      await avisarFotoNoDescargada(chatId);
+      return null;
+    }
+    await responderChat(chatId, texto, {
+      // Una pregunta escrita y terminada en "?" es inequívoca; con foto de por
+      // medio nunca lo es del todo.
+      ofrecerRegistro: foto.hay || !texto.endsWith("?"),
+      imagen: foto.imagen,
+    });
     return null;
   }
 
   // Sin comando, la hora decide el slot (§6.5). Siempre modificable en la
   // confirmación.
   return await registrarDesdeMensaje(chatId, msg, texto, currentSlotForTime());
+}
+
+// Baja la foto del mensaje sin escribirla en la base: en el camino de consulta
+// la foto no es comida y no le toca una fila de `MealPhoto`. `hay` distingue
+// "no venía foto" de "venía y no pude bajarla", que antes acababan en el mismo
+// sitio — y el segundo caso seguía adelante SIN imagen, con el modelo
+// estimando a ciegas.
+async function bajarFotoDelMensaje(
+  msg: NonNullable<TelegramUpdate["message"]>
+): Promise<{ hay: boolean; imagen: { base64: string; mime: string } | null }> {
+  if (!msg.photo?.length) return { hay: false, imagen: null };
+  const foto = await descargarFoto(msg.photo);
+  if (!foto) return { hay: true, imagen: null };
+  return { hay: true, imagen: { base64: foto.buffer.toString("base64"), mime: "image/jpeg" } };
+}
+
+async function avisarFotoNoDescargada(chatId: string): Promise<void> {
+  await sendMessage(
+    chatId,
+    "No pude bajar la foto de Telegram. Mándamela otra vez, o descríbeme qué es."
+  );
 }
 
 async function registrarDesdeMensaje(
@@ -158,7 +239,23 @@ async function registrarDesdeMensaje(
 
   if (msg.photo?.length) {
     const foto = await descargarFoto(msg.photo);
-    if (foto) {
+    // Si mandó foto y no llegó, se dice. Seguir en silencio dejaba al modelo
+    // estimando a ciegas, y eso no falla: devuelve un JSON válido y vacío que
+    // se convierte en un registro de 0 kcal.
+    //
+    // Con descripción de por medio la foto no era lo único que traía, así que
+    // se avisa y se estima con el texto — perder también lo escrito sería
+    // descartar un registro (§3.2-D).
+    if (!foto) {
+      if (!texto) {
+        await avisarFotoNoDescargada(chatId);
+        return null;
+      }
+      await sendMessage(
+        chatId,
+        "No pude bajar la foto de Telegram, así que lo estimo con tu descripción."
+      );
+    } else {
       fotoId = crypto.randomUUID();
       await prisma.mealPhoto.create({
         data: {
@@ -260,19 +357,175 @@ async function manejarCallback(update: TelegramUpdate): Promise<string | null> {
   return null;
 }
 
+// ── Notas de voz ───────────────────────────────────────────────────────────
+
+// Números dictados. Whisper a veces escribe "500" y a veces "quinientos", y de
+// eso depende que `/agua quinientos` registre algo o se quede en "dime cuántos
+// ml". Solo hace falta cubrir el rango en el que se habla de mililitros y de
+// kilos, así que el mapa es corto a propósito.
+const UNIDADES: Record<string, number> = {
+  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
+  seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+  trece: 13, catorce: 14, quince: 15, dieciséis: 16, dieciseis: 16,
+  diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, veintiuno: 21,
+  veintidós: 22, veintidos: 22, veintitrés: 23, veintitres: 23,
+  veinticuatro: 24, veinticinco: 25, veintiséis: 26, veintiseis: 26,
+  veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30,
+  cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80,
+  noventa: 90, cien: 100, ciento: 100, doscientos: 200, trescientos: 300,
+  cuatrocientos: 400, quinientos: 500, seiscientos: 600, setecientos: 700,
+  ochocientos: 800, novecientos: 900, mil: 1000,
+};
+
+// "ochenta y cuatro punto tres" → "84.3"; "mil quinientos" → "1500".
+// Se acumula por tramos: al terminar una secuencia de palabras-número se
+// emite el total. `mil` multiplica lo acumulado en vez de sumarse.
+function normalizarNumeros(texto: string): string {
+  const salida: string[] = [];
+  let acc: number | null = null;
+
+  const emitir = () => {
+    if (acc !== null) salida.push(String(acc));
+    acc = null;
+  };
+
+  for (const palabra of texto.split(/\s+/)) {
+    const limpia = palabra.toLowerCase().replace(/[.,;:!¡?¿]+$/, "");
+    const cola = palabra.slice(limpia.length);
+    const valor = UNIDADES[limpia];
+
+    if (valor !== undefined) {
+      if (limpia === "mil") acc = (acc ?? 1) * 1000;
+      else acc = (acc ?? 0) + valor;
+      // Si la palabra cerraba con puntuación, el número termina ahí.
+      if (cola) {
+        salida.push(String(acc) + cola);
+        acc = null;
+      }
+      continue;
+    }
+    // "y" entre decenas y unidades no rompe el número: ochenta y cuatro.
+    if (limpia === "y" && acc !== null) continue;
+
+    emitir();
+    salida.push(palabra);
+  }
+  emitir();
+
+  // "84 punto 3" -> "84.3", ya con los números convertidos a dígitos.
+  return salida.join(" ").replace(/(\d)\s+punto\s+(\d)/gi, "$1.$2");
+}
+
+// Comandos hablados que NO llevan diagonal. Cada regla es estrecha a
+// propósito: mapear "comida" o "agua" a lo bruto secuestraría un registro real
+// ("agua de jamaica con la comida" no es `/agua`).
+function normalizarComandoHablado(crudo: string): string {
+  const texto = crudo.trim();
+  const sinPunto = texto.replace(/[.!¡]+$/, "").trim();
+  const bajo = sinPunto.toLowerCase();
+
+  // Solos y sin nada más: no hay forma de confundirlos con comida.
+  const SOLOS = ["hoy", "ayer", "semana", "platillos", "ayuda", "deshacer"];
+  if (SOLOS.includes(bajo)) return `/${bajo}`;
+
+  // "agua quinientos", "peso ochenta y cuatro punto tres". La conversión de
+  // números dictados se aplica SOLO aquí: pasarla sobre todo el texto
+  // convertiría "un poco de arroz" en "1 poco de arroz". Si no aparece ningún
+  // número, no era un comando ("agua de jamaica con la comida" es comida).
+  const numerico = sinPunto.match(/^(agua|peso)\b\s*(.+)$/i);
+  if (numerico) {
+    const valor = normalizarNumeros(numerico[2]).match(/\d+(?:\.\d+)?/);
+    if (valor) return `/${numerico[1].toLowerCase()} ${valor[0]}`;
+  }
+
+  // "chat, ¿qué ceno?" — forzar la consulta aunque no suene a pregunta.
+  const chat = sinPunto.match(/^chat[\s,:]+(.+)$/i);
+  if (chat) return `/chat ${chat[1]}`;
+
+  // Un slot solo cuenta como comando si viene separado de lo que sigue:
+  // "cena: pollo con arroz". Sin el separador, "comida corrida con agua de
+  // jamaica" se convertiría en `/comida corrida…` y perdería la palabra.
+  const slot = sinPunto.match(/^(desayuno|comida|cena|snack|post\s*gym)\s*[:,]\s*(.*)$/i);
+  if (slot) {
+    const clave = slot[1].toLowerCase().replace(/\s+/g, "");
+    return `/${clave === "postgym" ? "postgym" : clave} ${slot[2]}`.trim();
+  }
+
+  return texto;
+}
+
+async function manejarVoz(
+  chatId: string,
+  msg: NonNullable<TelegramUpdate["message"]>,
+  audio: ArchivoTelegram
+): Promise<string | null> {
+  if (!transcripcionConfig().habilitado) {
+    await sendMessage(
+      chatId,
+      "Todavía no puedo escuchar notas de voz. Escríbeme y lo registro igual."
+    );
+    return null;
+  }
+
+  await enviarAccion(chatId, "typing");
+
+  const archivo = await descargarArchivo(audio.file_id);
+  if (!archivo) {
+    await sendMessage(chatId, "No pude bajar tu nota de voz. Mándamela otra vez.");
+    return null;
+  }
+
+  let transcrito: string;
+  try {
+    // `rutaRemota` trae la extensión real que asignó Telegram (.oga para las
+    // notas de voz); el decodificador la usa para elegir formato.
+    const nombre = archivo.rutaRemota.split("/").pop() || "nota.oga";
+    const res = await transcribirAudio({ buffer: archivo.buffer, nombre });
+    transcrito = res.texto;
+  } catch (err) {
+    if (err instanceof AiUnavailableError) {
+      logEvent("tg_voz_fallida", {
+        causa: err.causa,
+        detalle: err.detalle,
+        segundos: audio.duration,
+        bytes: archivo.buffer.byteLength,
+      });
+      await sendMessage(
+        chatId,
+        err.causa === "parseo"
+          ? "No le entendí a la nota. ¿Me la repites o me lo escribes?"
+          : `No pude transcribir tu nota (${MOTIVO_LEGIBLE[err.causa]}). Inténtalo otra vez.`
+      );
+      return null;
+    }
+    throw err;
+  }
+
+  const normalizado = normalizarComandoHablado(transcrito);
+
+  // El eco no es cortesía: es lo que deja ver qué se entendió ANTES de que
+  // llegue la tarjeta de estimación, y sin él un registro por voz es un dato
+  // que el atleta no puede auditar.
+  await sendMessage(chatId, `🎙 <i>${escaparHtml(transcrito)}</i>`);
+  logEvent("tg_voz", { caracteres: transcrito.length, segundos: audio.duration });
+
+  // Desde aquí es idéntico a haberlo escrito.
+  return await procesarTexto(chatId, msg, normalizado);
+}
+
 // Consulta abierta. Mantiene el hilo 30 min para poder repreguntar ("¿y si no
 // tengo pollo?") sin repetir el contexto.
 async function responderChat(
   chatId: string,
   pregunta: string,
-  opts: { ofrecerRegistro?: boolean } = {}
+  opts: { ofrecerRegistro?: boolean; imagen?: { base64: string; mime: string } | null } = {}
 ): Promise<void> {
   // grok-4.5 tarda 12-20 s; sin la señal de "escribiendo" el chat parece muerto.
   await enviarAccion(chatId, "typing");
 
   try {
     const historial = await leerHistorial(chatId);
-    const res = await responderPregunta({ pregunta, historial });
+    const res = await responderPregunta({ pregunta, historial, imagen: opts.imagen });
     await guardarHistorial(chatId, res.historial);
 
     // La heurística puede confundir un registro con una pregunta ("que me comí
@@ -285,7 +538,11 @@ async function responderChat(
     await sendMessage(chatId, escaparHtml(res.texto) + coletilla);
   } catch (err) {
     if (err instanceof AiUnavailableError) {
-      await sendMessage(chatId, "Ahorita no puedo responder consultas. Inténtalo en un rato.");
+      logEvent("tg_chat_fallido", { causa: err.causa, detalle: err.detalle, conFoto: Boolean(opts.imagen) });
+      await sendMessage(
+        chatId,
+        `Ahorita no puedo responder consultas (${MOTIVO_LEGIBLE[err.causa]}). Inténtalo en un rato.`
+      );
       return;
     }
     throw err;

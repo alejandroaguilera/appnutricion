@@ -2,12 +2,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { estimatePortions } from "@/lib/ai/estimatePortions";
 import { loadDishContext } from "@/lib/ai/dishContext";
-import { AiUnavailableError } from "@/lib/ai/provider";
+import { AiUnavailableError, MOTIVO_LEGIBLE } from "@/lib/ai/provider";
 import { FOOD_GROUPS, computePortionMacros, DISPLAY_GROUPS } from "@/lib/nutrition/groups";
 import { localDayString } from "@/lib/date";
 import { logEvent } from "@/lib/log";
 import { sendMessage, editMessageText, type InlineButton } from "./api";
-import { tarjetaEstimacion, acuseRegistro } from "./mensajes";
+import { tarjetaEstimacion, acuseRegistro, escaparHtml } from "./mensajes";
 import type { Estimacion } from "@/lib/ai/schema";
 import type { PlanMealSlotClave } from "@prisma/client";
 
@@ -94,6 +94,18 @@ export async function proponerRegistro(args: {
   });
   const slotNombre = slot?.nombre ?? args.slotClave;
 
+  // Sin texto y sin foto no hay nada que estimar. El modelo, preguntado a
+  // ciegas, contesta un JSON válido y vacío (`items: []`, `confianza: 0.1`),
+  // así que esto no fallaba: mostraba una tarjeta que al confirmar creaba un
+  // registro de 0 kcal. Es el caso de mandar `/snack` a secas.
+  if (!args.texto && !args.imagen) {
+    await sendMessage(
+      args.chatId,
+      `¿Qué comiste? Mándame el texto o la foto y lo registro en <b>${escaparHtml(slotNombre)}</b>.`
+    );
+    return;
+  }
+
   let estimado;
   try {
     estimado = await estimatePortions({
@@ -107,10 +119,20 @@ export async function proponerRegistro(args: {
       // Nunca se descarta el registro (§3.2-D): se guarda pendiente con el
       // texto y la foto intactos, y el trabajo de reclasificación lo retoma.
       await guardarPendiente(args);
+      // La causa va en el mensaje Y en la bitácora. Un "no pude estimar" pelón
+      // no distingue entre el modelo caído y una respuesta cortada, y sin
+      // shell en el contenedor esa diferencia no se recupera después.
+      logEvent("tg_estimacion_fallida", {
+        causa: err.causa,
+        detalle: err.detalle,
+        slot: args.slotClave,
+        tieneFoto: Boolean(args.imagen),
+        largoTexto: args.texto?.length ?? 0,
+      });
       await sendMessage(
         args.chatId,
-        "Guardé tu registro, pero no pude estimar las porciones ahora mismo. " +
-          "Lo intento de nuevo en cuanto pueda y te aviso."
+        `Guardé tu registro, pero no pude estimar las porciones ahora mismo ` +
+          `(${MOTIVO_LEGIBLE[err.causa]}). Lo intento de nuevo en cuanto pueda y te aviso.`
       );
       return;
     }

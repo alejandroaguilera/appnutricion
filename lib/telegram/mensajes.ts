@@ -93,11 +93,19 @@ export const AYUDA = `<b>Cómo registrar</b>
 Escribe lo que comiste y ya: <i>"3 huevos, 2 tortillas y aguacate"</i>.
 También puedes mandar una foto, con o sin descripción.
 
+<b>Por voz</b>
+
+Mándame una nota de voz y te repito lo que entendí antes de registrar.
+Para dictar un comando, di la comida y una pausa: <i>"cena: pollo con
+arroz"</i>. También <i>"agua quinientos"</i>, <i>"peso ochenta y cuatro punto
+tres"</i>, <i>"deshacer"</i>, <i>"hoy"</i>.
+
 <b>Preguntar</b>
 
 Si escribes una pregunta te contesto en vez de registrarla:
 <i>"¿qué puedo cenar hoy?"</i>, <i>"¿cuántas calorías tiene una cerveza?"</i>.
-También puedes forzarlo con /chat.
+Una foto con pregunta también se contesta: mándala con el pie
+<i>"¿esto tiene cafeína?"</i> y la miro. Sin pregunta, la foto es comida.
 
 <b>Comandos</b>
 /chat + pregunta — consulta nutricional abierta

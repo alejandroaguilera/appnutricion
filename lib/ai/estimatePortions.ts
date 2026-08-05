@@ -86,24 +86,37 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
     });
   }
 
-  const res = await xaiChat({ modelo, system: SYSTEM_ESTIMACION, user: contenido });
+  // Con foto el tope tiene que ser más holgado: los tokens de razonamiento de
+  // `grok-4.5` salen del mismo presupuesto que el JSON, y una respuesta
+  // cortada a la mitad no se puede reparar, solo repetir.
+  const maxTokens = input.imagen ? 2000 : 1200;
+
+  const res = await xaiChat({ modelo, system: SYSTEM_ESTIMACION, user: contenido, maxTokens });
 
   let parsed = parseEstimacion(res.contenido);
 
   // Un solo viaje de reparación. Si vuelve a fallar, la entrada se guarda
   // como `pendiente` río arriba — nunca se descarta el registro (§3.2).
+  //
+  // La reparación NO reenvía la imagen: ya está descrita en la respuesta rota
+  // que se le devuelve, y reenviarla cuesta ~2 400 tokens de entrada y vuelve
+  // a gastar el mismo presupuesto de razonamiento que acaba de agotarse.
   if (!parsed.ok) {
-    logEvent("ia_reparando_json", { issues: parsed.issues });
+    logEvent("ia_reparando_json", { issues: parsed.issues, conFoto: Boolean(input.imagen) });
+    const soloTexto = contenido.filter((c) => c.type === "text");
     const reintento = await xaiChat({
       modelo,
       system: SYSTEM_ESTIMACION,
       user: [
-        ...contenido,
+        ...soloTexto,
         {
           type: "text",
-          text: `Tu respuesta anterior no cumplió el esquema (${parsed.issues}). Responde SOLO el JSON corregido.`,
+          text:
+            `Respondiste esto y no cumple el esquema (${parsed.issues}):\n${res.contenido.slice(0, 1500)}\n\n` +
+            `Responde SOLO el JSON corregido, completo y sin comentarios.`,
         },
       ],
+      maxTokens,
     });
     parsed = parseEstimacion(reintento.contenido);
     if (!parsed.ok) throw new AiUnavailableError("parseo", parsed.issues);

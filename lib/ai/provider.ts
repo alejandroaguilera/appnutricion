@@ -1,6 +1,25 @@
 import { logEvent, errorInfo } from "@/lib/log";
 
-export type CausaIaNoDisponible = "sin_llave" | "red" | "http" | "parseo" | "timeout";
+export type CausaIaNoDisponible =
+  | "sin_llave"
+  | "red"
+  | "http"
+  | "parseo"
+  | "timeout"
+  | "truncado";
+
+// Lo que se le dice al atleta, por causa. Sin esto el único mensaje posible es
+// "no pude estimar", que no distingue entre "tardó demasiado" y "la API está
+// caída" — y sin logs del contenedor esa diferencia es imposible de recuperar
+// después.
+export const MOTIVO_LEGIBLE: Record<CausaIaNoDisponible, string> = {
+  sin_llave: "no tengo configurado el modelo",
+  red: "no pude conectarme al modelo",
+  http: "el modelo respondió con un error",
+  parseo: "el modelo respondió algo que no entendí",
+  timeout: "el modelo no respondió a tiempo",
+  truncado: "se cortó la respuesta del modelo",
+};
 
 export class AiUnavailableError extends Error {
   constructor(
@@ -51,9 +70,12 @@ export interface RespuestaChat {
 // Cliente mínimo compatible con la API de chat completions de xAI. Sin SDK:
 // es una sola llamada, y una dependencia menos es una dependencia menos que
 // romper el layout de node_modules del Dockerfile.
+// El contenido de un turno puede ser texto suelto o multimodal. Lo segundo lo
+// necesita `/chat` con foto; lo que se PERSISTE como historial es siempre
+// texto (ver `lib/ai/chat.ts`), para no meter base64 en Postgres.
 export interface MensajeChat {
   role: "user" | "assistant";
-  content: string;
+  content: string | ContenidoUsuario[];
 }
 
 export async function xaiChat(args: {
@@ -120,9 +142,28 @@ export async function xaiChat(args: {
   }
 
   const crudo = await res.json();
-  const contenido = crudo?.choices?.[0]?.message?.content;
+  const eleccion = crudo?.choices?.[0];
+  const contenido = eleccion?.message?.content;
+  const finishReason = eleccion?.finish_reason;
+
+  logEvent("ia_ok", {
+    modelo: args.modelo,
+    latenciaMs,
+    tokens: crudo?.usage?.total_tokens,
+    finishReason,
+    completionTokens: crudo?.usage?.completion_tokens,
+    razonamientoTokens: crudo?.usage?.completion_tokens_details?.reasoning_tokens,
+  });
+
+  // `grok-4.5` razona antes de responder y sus tokens de razonamiento cuentan
+  // contra el MISMO tope que la respuesta. Cuando se agota, la API devuelve un
+  // JSON cortado a la mitad con finish_reason "length". Sin esta comprobación
+  // eso llega río abajo disfrazado de error de parseo, que manda a buscar el
+  // problema al prompt en vez de al presupuesto de tokens.
+  if (finishReason === "length") {
+    throw new AiUnavailableError("truncado", `max_tokens=${args.maxTokens ?? 1200}`);
+  }
   if (typeof contenido !== "string") throw new AiUnavailableError("parseo", "respuesta sin contenido");
 
-  logEvent("ia_ok", { modelo: args.modelo, latenciaMs, tokens: crudo?.usage?.total_tokens });
   return { contenido, modelo: args.modelo, crudo, latenciaMs };
 }

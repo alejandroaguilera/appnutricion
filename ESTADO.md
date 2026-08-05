@@ -4,7 +4,7 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-08-04 (ronda 3)
+**Última actualización:** 2026-08-06 (ronda 4)
 
 ## Fases
 
@@ -22,6 +22,7 @@ El spec es el contrato de diseño y no se edita; este archivo es lo que va cambi
 | 10 | Telegram: webhook, comandos, registro | ✅ activo (@appnutricion_bot) |
 | 11 | Estimación por texto y foto (`lib/ai/`) | ✅ activo (grok-4.5) |
 | 12 | Mensajes salientes de Telegram | ✅ resumen diario y revisión dominical |
+| — | Notas de voz en Telegram (fuera del §9) | ⚙️ código listo, falta `GROQ_API_KEY` |
 
 Fuera de la tabla del §9, también construido: esqueleto de navegación por pestañas,
 pantalla de editar/borrar comida, almacenamiento de fotos, y un programador en
@@ -36,6 +37,12 @@ Todas cargadas en Dokploy (2026-08-04): `XAI_API_KEY`, `XAI_MODEL`,
 Bot: **@appnutricion_bot**. `chat_id` autorizado: `6647020281` (único; cualquier
 otro chat se ignora en silencio, §6.3).
 
+**Pendiente:** `GROQ_API_KEY` (console.groq.com) para las notas de voz. Sin
+ella el bot responde «todavía no puedo escuchar notas de voz» y todo lo demás
+funciona igual. Al agregarla en Dokploy hay que **releer el bloque `env`
+completo con `application.one` y reenviarlo entero**: `saveEnvironment`
+reemplaza, no fusiona, y mandar solo la variable nueva borra las otras trece.
+
 ### Rendimiento medido (2026-08-04)
 
 - **Camino local** (alias de platillo guardado): **3 ms**, sin llamada al
@@ -48,6 +55,28 @@ otro chat se ignora en silencio, §6.3).
   procesa después, así que Telegram nunca reintenta por lentitud.
 - Si algún día molesta la espera, `grok-4-fast` existe en la cuenta y sería
   bastante más rápido a cambio de algo de precisión. Decisión de Alejandro.
+
+### La API de xAI no transcribe audio (verificado 2026-08-06)
+
+No es una laguna de la documentación, es un hecho comprobado contra la API en
+vivo. **No volver a gastar llamadas descubriéndolo:**
+
+- `GET /v1/language-models` declara `input_modalities: ["text","image"]` en
+  **todos** los modelos. Ninguno acepta audio.
+- `POST /v1/audio/transcriptions` responde **404**.
+- Un bloque `{"type":"input_audio"}` en el array de contenido sale con
+  `400 invalid-argument: Empty content block`.
+
+Por eso las notas de voz usan un **segundo proveedor** (`lib/ai/transcribe.ts`,
+Groq `whisper-large-v3-turbo` por defecto) con su propia llave y su propia
+función de config. Cambiar de proveedor es mover `TRANSCRIPCION_BASE_URL` y
+`TRANSCRIPCION_MODELO`; la forma multipart es idéntica en Groq y en OpenAI.
+
+Con créditos activos **`/v1/models` ya funciona** (antes daba 403), así que
+descubrir ids vigentes ya no necesita el truco de sondear `chat/completions`.
+Modelos que existen hoy y no existían en la ronda 3: `grok-4.3` y la familia
+`grok-4.20` (`-reasoning`, `-non-reasoning`, `-multi-agent`, 1M de contexto).
+La variante `non-reasoning` bajaría bastante la latencia; sigue sin decidirse.
 
 ### Lo que se aprendió de la API de xAI
 
@@ -111,14 +140,45 @@ sesión las "arreglaría" de vuelta.
    el parser ampliado sabe leer, y corre **fuera** del early-return de
    `seedDatabase` — ahí adentro nada vuelve a ejecutarse una vez sembrado, así
    que mejorar el parser no habría tenido ningún efecto en producción.
-8. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
+8. **Una foto con pregunta se contesta, no se registra** (cambiado el
+   2026-08-06; antes decía «una foto SIEMPRE es comida»). Si el pie de foto
+   pasa la heurística de consulta, la foto va al chat **con la imagen** y se
+   responde, con la coletilla de «si querías registrarlo, mándala con /snack».
+   Sin pie, o con descripción normal, la foto sigue siendo comida.
+
+   Lo que forzó el cambio: `/chat` + foto contestaba «no veo ningún producto»
+   porque `responderChat()` solo pasaba texto. El soporte multimodal existía
+   pero estaba reservado al camino de estimación. **El historial de `/chat` que
+   se persiste guarda la foto como el marcador `[foto]`**, nunca el base64: son
+   ~500 KB por imagen en la columna `Json` de `TelegramSession`, y a la tercera
+   repregunta la fila pesaría megabytes.
+
+9. **La sesión de `/chat` vive bajo `${chatId}:chat`.** `TelegramSession.chatId`
    es clave primaria y solo cabe una fila por chat; sin el sufijo, empezar una
    conversación destruiría una estimación pendiente de confirmar.
-9. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
-   en `?`, empieza con `¿`, o arranca con qué/cuánto/cómo/puedo…), sin gastar
-   una llamada al modelo para adivinar la intención. Una foto siempre es
-   comida. Ante duda se responde **y** se ofrece registrar, para no tragarse
-   una intención de registro.
+10. **Una pregunta se contesta, no se registra.** Heurística de texto (termina
+    en `?`, empieza con `¿`, o arranca con qué/cuánto/cómo/puedo…), sin gastar
+    una llamada al modelo para adivinar la intención. Ante duda se responde
+    **y** se ofrece registrar, para no tragarse una intención de registro.
+
+11. **Los comandos dictados exigen un separador, no una palabra suelta**
+    (`normalizarComandoHablado`, `lib/telegram/router.ts`). Whisper nunca
+    escribe la diagonal, así que hay que reconstruirla — pero mapear la palabra
+    a secas secuestraría registros reales: «comida corrida con agua de jamaica»
+    se convertiría en `/comida corrida…` y perdería la palabra. Las reglas son
+    estrechas a propósito:
+    - slots (`desayuno|comida|cena|snack|post gym`) solo con `:` o `,` detrás
+      («cena: pollo con arroz»);
+    - `agua`/`peso` solo si después hay un número;
+    - `hoy|ayer|semana|platillos|ayuda|deshacer` solo si son el mensaje entero.
+
+    **La conversión de números dictados se aplica solo dentro de `agua`/`peso`**,
+    nunca al texto completo: «un poco de arroz» se volvería «1 poco de arroz».
+
+12. **Sin migración para la voz.** Una nota de voz se guarda en
+    `TelegramUpdate.tipo` como `texto`. Agregar un valor `voz` al enum obligaría
+    a un `ALTER TYPE`, y sin shell en el contenedor una migración que falla deja
+    la app sin arrancar. Ese campo es solo diagnóstico del deduplicador.
 
 ## Restricciones del entorno
 
@@ -136,6 +196,47 @@ sesión las "arreglaría" de vuelta.
 - La verificación real es `curl` contra la URL en vivo. No hay runtime local.
 
 ## Historia que conviene no repetir
+
+### Los fallos que se disfrazaban de otra cosa (6 de agosto de 2026)
+
+Tres reportes de Alejandro probando el bot, y ninguno era el bug que parecía.
+
+**«No pude estimar las porciones».** Se investigó como si la visión estuviera
+rota. No lo estaba: replicando el payload exacto de estimación contra la API en
+vivo —mismo system, `response_format: json_object`, imagen `detail: high`—
+`grok-4.5` devolvió JSON válido y bien estimado en **6.8 s**. Lo que sí había
+eran dos caminos que fallaban **sin fallar**:
+
+- `descargarFoto()` devuelve `null` y el flujo **seguía como si no hubiera
+  foto**. El modelo, preguntado a ciegas, no se queja: devuelve
+  `{"items": [], "porciones": [], "confianza": 0.1}`, que es JSON perfectamente
+  válido. Resultado: una tarjeta vacía que al confirmar creaba un registro de
+  0 kcal. Comprobado mandando ese prompt sin texto ni imagen.
+- Lo mismo con `/snack` a secas: sin texto y sin foto se gastaba una llamada al
+  modelo para producir esa misma tarjeta vacía.
+
+Regla: **un JSON válido no es una estimación válida.** Si no hay entrada, no
+hay llamada; y si la entrada se perdió en el camino, se dice — no se sigue con
+lo que quedó.
+
+**La causa del fallo no estaba en ningún lado.** El mensaje era
+«no pude estimar» a secas para las cinco causas de `AiUnavailableError`, y
+diagnosticarlo desde fuera resultó imposible: sin `docker exec`, sin socket de
+Docker (`permission denied`) y con Postgres sin puerto publicado al host, **los
+logs de producción no son consultables**. Ahora la causa va en el mensaje al
+atleta (`MOTIVO_LEGIBLE`) y en `logEvent("tg_estimacion_fallida")`.
+
+Se agregó también la causa **`truncado`**: `grok-4.5` razona antes de responder
+y sus tokens de razonamiento salen del **mismo** `max_tokens` que la respuesta.
+Cuando se agota, la API devuelve un JSON cortado con `finish_reason: "length"`
+— que llegaba disfrazado de error de *parseo* y mandaba a buscar el problema al
+prompt en vez de al presupuesto de tokens. El viaje de reparación, además,
+reenviaba la imagen entera (~2 400 tokens) para volver a truncarse igual.
+
+**La nota de voz que no hacía nada.** No había ningún `if` que la mirara:
+`voice` ni siquiera estaba en la interfaz `TelegramUpdate`, así que caía en el
+`if (!texto && !msg.photo) return null`. Un `return null` silencioso en un
+router de mensajes es indistinguible de un bot caído.
 
 ### El registro por IA que nunca llegó (4 de agosto de 2026)
 
