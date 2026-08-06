@@ -359,10 +359,11 @@ async function manejarCallback(update: TelegramUpdate): Promise<string | null> {
 
 // ── Notas de voz ───────────────────────────────────────────────────────────
 
-// Números dictados. Whisper a veces escribe "500" y a veces "quinientos", y de
-// eso depende que `/agua quinientos` registre algo o se quede en "dime cuántos
-// ml". Solo hace falta cubrir el rango en el que se habla de mililitros y de
-// kilos, así que el mapa es corto a propósito.
+// Números dictados. Red de seguridad: `/v1/stt` con `format=true` ya devuelve
+// "500" y "84.3" por su cuenta (normalización inversa de texto), pero de eso
+// depende que `/agua quinientos` registre algo o se quede en "dime cuántos
+// ml", y no cuesta nada cubrirse. Solo hace falta el rango en el que se habla
+// de mililitros y de kilos, así que el mapa es corto a propósito.
 const UNIDADES: Record<string, number> = {
   cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
   seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
@@ -477,8 +478,9 @@ async function manejarVoz(
 
   let transcrito: string;
   try {
-    // `rutaRemota` trae la extensión real que asignó Telegram (.oga para las
-    // notas de voz); el decodificador la usa para elegir formato.
+    // `rutaRemota` trae la extensión que asignó Telegram (.oga en las notas de
+    // voz). El contenedor lo autodetecta la propia API, así que el nombre es
+    // solo una pista — y una traza legible en los logs.
     const nombre = archivo.rutaRemota.split("/").pop() || "nota.oga";
     const res = await transcribirAudio({ buffer: archivo.buffer, nombre });
     transcrito = res.texto;

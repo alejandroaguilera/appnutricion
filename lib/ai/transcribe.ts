@@ -1,47 +1,60 @@
-import { AiUnavailableError } from "./provider";
+import { aiConfig, AiUnavailableError } from "./provider";
 import { logEvent, errorInfo } from "@/lib/log";
 
-// xAI no transcribe audio y no es una laguna de documentación: verificado
-// contra la API en vivo (2026-08-06). `/v1/language-models` declara
-// `input_modalities: ["text","image"]` en TODOS sus modelos,
-// `/v1/audio/transcriptions` responde 404, y un bloque `input_audio` en el
-// content array sale con `400 invalid-argument: Empty content block`. Las
-// notas de voz obligan a un segundo proveedor, y por eso vive en su propio
-// archivo con su propia llave en vez de colarse dentro de `aiConfig()`.
+// Transcripción de notas de voz con xAI. Usa la MISMA `XAI_API_KEY` que el
+// resto de la app: no hace falta ninguna credencial nueva.
 //
-// Por defecto Groq: capa gratuita, ~1 s por nota, API compatible con la de
-// OpenAI. Cambiar de proveedor es mover dos variables de entorno, no tocar
-// código — la forma multipart es la misma en Groq, OpenAI y cualquier
-// pasarela compatible.
+// Ojo con cómo se busca este endpoint: `/v1/audio/transcriptions` (la ruta
+// compatible con OpenAI) responde **404** en xAI, y el modelo de chat rechaza
+// un bloque `input_audio` con `400 Empty content block`. Nada de eso significa
+// que xAI no transcriba: la ruta es `/v1/stt` y tiene su propia forma, que no
+// es la de OpenAI (sin campo `model`, y la respuesta trae `text`, `language`,
+// `duration` y `words`). Verificado de punta a punta el 2026-08-06.
+//
+// https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
 export interface TranscripcionConfig {
   habilitado: boolean;
   apiKey: string | null;
-  modelo: string;
   baseUrl: string;
 }
 
 export function transcripcionConfig(): TranscripcionConfig {
-  const apiKey = process.env.GROQ_API_KEY?.trim() || null;
-  return {
-    habilitado: Boolean(apiKey),
-    apiKey,
-    modelo: process.env.TRANSCRIPCION_MODELO?.trim() || "whisper-large-v3-turbo",
-    baseUrl: process.env.TRANSCRIPCION_BASE_URL?.trim() || "https://api.groq.com/openai/v1",
-  };
+  // `aiConfig().habilitado` exige además XAI_MODEL, que aquí no se usa: /v1/stt
+  // no recibe nombre de modelo. Basta con la llave.
+  const { apiKey, baseUrl } = aiConfig();
+  return { habilitado: Boolean(apiKey), apiKey, baseUrl };
 }
 
-// Tope defensivo. Una nota de voz de Telegram ronda los 20 KB por segundo;
-// 20 MB son más de diez minutos, que ya no es un registro de comida.
+// Sesga la transcripción hacia el vocabulario que de verdad se dicta aquí.
+// El endpoint admite el campo repetido (máx. 100 términos de 50 caracteres).
+const TERMINOS = [
+  "SMAE",
+  "porciones",
+  "tortillas",
+  "aguacate",
+  "avena",
+  "proteína",
+  "desayuno",
+  "comida",
+  "cena",
+  "snack",
+  "post gym",
+  "deshacer",
+];
+
+// Tope defensivo muy por debajo de los 500 MB que admite la API: una nota de
+// voz de Telegram ronda los 20 KB por segundo, así que 20 MB ya son más de
+// diez minutos y eso no es un registro de comida.
 const MAX_BYTES = 20 * 1024 * 1024;
 
 export async function transcribirAudio(args: {
   buffer: Buffer;
-  /** Nombre con extensión real. El decodificador la usa para elegir formato. */
+  /** Nombre con extensión real; el contenedor se autodetecta igual. */
   nombre: string;
   timeoutMs?: number;
-}): Promise<{ texto: string; latenciaMs: number }> {
+}): Promise<{ texto: string; latenciaMs: number; segundos: number | null }> {
   const cfg = transcripcionConfig();
-  if (!cfg.apiKey) throw new AiUnavailableError("sin_llave", "sin GROQ_API_KEY");
+  if (!cfg.apiKey) throw new AiUnavailableError("sin_llave", "sin XAI_API_KEY");
   if (args.buffer.byteLength > MAX_BYTES) {
     throw new AiUnavailableError("http", "audio demasiado largo");
   }
@@ -54,22 +67,16 @@ export async function transcribirAudio(args: {
   // igual que el resto de `lib/ai/`.
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(args.buffer)]), args.nombre);
-  form.append("model", cfg.modelo);
-  form.append("response_format", "json");
-  // El atleta habla español de México. Fijar el idioma evita que una nota
-  // corta y ruidosa se transcriba como si fuera inglés.
   form.append("language", "es");
-  // Sesga el vocabulario hacia lo que de verdad se dicta aquí. Sin esto,
-  // "aoa" o "SMAE" salen como cualquier cosa.
-  form.append(
-    "prompt",
-    "Registro de comida en español de México: porciones, gramos, tortillas, " +
-      "aguacate, avena, proteína, SMAE, desayuno, comida, cena, snack, agua, peso."
-  );
+  // Normalización inversa de texto: es lo que convierte "quinientos" en "500"
+  // y "ochenta y cuatro punto tres" en "84.3". Sin esto, `/agua` y `/peso`
+  // dictados no traerían ningún número que registrar.
+  form.append("format", "true");
+  for (const termino of TERMINOS) form.append("keyterm", termino);
 
   let res: Response;
   try {
-    res = await fetch(`${cfg.baseUrl}/audio/transcriptions`, {
+    res = await fetch(`${cfg.baseUrl}/stt`, {
       method: "POST",
       headers: { Authorization: `Bearer ${cfg.apiKey}` },
       body: form,
@@ -88,7 +95,6 @@ export async function transcribirAudio(args: {
     const cuerpo = await res.text().catch(() => "");
     logEvent("transcripcion_http_error", {
       status: res.status,
-      modelo: cfg.modelo,
       latenciaMs,
       cuerpo: cuerpo.slice(0, 400),
     });
@@ -97,12 +103,14 @@ export async function transcribirAudio(args: {
 
   const crudo = await res.json().catch(() => null);
   const texto = typeof crudo?.text === "string" ? crudo.text.trim() : "";
+  const segundos = typeof crudo?.duration === "number" ? crudo.duration : null;
 
-  logEvent("transcripcion_ok", { modelo: cfg.modelo, latenciaMs, caracteres: texto.length });
+  logEvent("transcripcion_ok", { latenciaMs, segundos, caracteres: texto.length });
 
-  // Silencio o ruido: es un fallo de contenido, no de la API. Río arriba se
-  // traduce a "no le entendí", que es distinto de "no puedo escucharte".
+  // Silencio o ruido: la API devuelve 200 con `text` vacío. Es un fallo de
+  // contenido, no de la API, y río arriba se traduce a "no le entendí" — que
+  // es muy distinto de "no puedo escucharte".
   if (!texto) throw new AiUnavailableError("parseo", "transcripción vacía");
 
-  return { texto, latenciaMs };
+  return { texto, latenciaMs, segundos };
 }

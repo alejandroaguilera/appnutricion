@@ -22,7 +22,7 @@ El spec es el contrato de diseño y no se edita; este archivo es lo que va cambi
 | 10 | Telegram: webhook, comandos, registro | ✅ activo (@appnutricion_bot) |
 | 11 | Estimación por texto y foto (`lib/ai/`) | ✅ activo (grok-4.5) |
 | 12 | Mensajes salientes de Telegram | ✅ resumen diario y revisión dominical |
-| — | Notas de voz en Telegram (fuera del §9) | ⚙️ código listo, falta `GROQ_API_KEY` |
+| — | Notas de voz en Telegram (fuera del §9) | ✅ activo (xAI `/v1/stt`) |
 
 Fuera de la tabla del §9, también construido: esqueleto de navegación por pestañas,
 pantalla de editar/borrar comida, almacenamiento de fotos, y un programador en
@@ -37,10 +37,11 @@ Todas cargadas en Dokploy (2026-08-04): `XAI_API_KEY`, `XAI_MODEL`,
 Bot: **@appnutricion_bot**. `chat_id` autorizado: `6647020281` (único; cualquier
 otro chat se ignora en silencio, §6.3).
 
-**Pendiente:** `GROQ_API_KEY` (console.groq.com) para las notas de voz. Sin
-ella el bot responde «todavía no puedo escuchar notas de voz» y todo lo demás
-funciona igual. Al agregarla en Dokploy hay que **releer el bloque `env`
-completo con `application.one` y reenviarlo entero**: `saveEnvironment`
+Las notas de voz **no añadieron ninguna credencial**: van con `XAI_API_KEY`
+contra `/v1/stt`.
+
+Si algún día hay que tocar el bloque `env` en Dokploy, **hay que releerlo
+entero con `application.one` y reenviarlo completo**: `saveEnvironment`
 reemplaza, no fusiona, y mandar solo la variable nueva borra las otras trece.
 
 ### Rendimiento medido (2026-08-04)
@@ -56,21 +57,35 @@ reemplaza, no fusiona, y mandar solo la variable nueva borra las otras trece.
 - Si algún día molesta la espera, `grok-4-fast` existe en la cuenta y sería
   bastante más rápido a cambio de algo de precisión. Decisión de Alejandro.
 
-### La API de xAI no transcribe audio (verificado 2026-08-06)
+### xAI SÍ transcribe audio, pero no por la ruta de OpenAI
 
-No es una laguna de la documentación, es un hecho comprobado contra la API en
-vivo. **No volver a gastar llamadas descubriéndolo:**
+`POST /v1/stt`, multipart, con la **misma `XAI_API_KEY`**. No hace falta
+ninguna credencial extra. Documentado en
+`docs.x.ai/developers/model-capabilities/audio/speech-to-text`.
 
-- `GET /v1/language-models` declara `input_modalities: ["text","image"]` en
-  **todos** los modelos. Ninguno acepta audio.
-- `POST /v1/audio/transcriptions` responde **404**.
-- Un bloque `{"type":"input_audio"}` en el array de contenido sale con
-  `400 invalid-argument: Empty content block`.
+Tres señales hacen creer que xAI no transcribe, y las tres son falsas pistas:
 
-Por eso las notas de voz usan un **segundo proveedor** (`lib/ai/transcribe.ts`,
-Groq `whisper-large-v3-turbo` por defecto) con su propia llave y su propia
-función de config. Cambiar de proveedor es mover `TRANSCRIPCION_BASE_URL` y
-`TRANSCRIPCION_MODELO`; la forma multipart es idéntica en Groq y en OpenAI.
+- `POST /v1/audio/transcriptions` (la ruta compatible con OpenAI) → **404**.
+- `GET /v1/language-models` declara `input_modalities: ["text","image"]`: eso
+  describe los modelos de **chat**, no el servicio de STT, que no recibe
+  nombre de modelo.
+- Un bloque `{"type":"input_audio"}` en el chat → `400 Empty content block`.
+
+**Un 404 en la ruta compatible no es una respuesta sobre la capacidad, solo
+sobre la ruta.** Antes de concluir que un proveedor no hace algo, hay que leer
+su documentación, no sondear el dialecto de otro.
+
+Forma real (verificada de punta a punta el 2026-08-06 generando audio con
+`POST /v1/tts` `{text, language}` y transcribiéndolo de vuelta):
+
+- Campos: `file`, `language`, `format` (normalización inversa de texto),
+  `keyterm` (repetible, sesga el vocabulario), `diarize`, `vad_threshold`…
+- Respuesta: `{ text, language, duration, words[] }`.
+- Contenedores autodetectados, incluido **OGG/Opus** — el formato exacto en el
+  que Telegram manda las notas de voz. Hasta 500 MB.
+- **`format=true` ya hace el trabajo de números dictados**: «agua quinientos» →
+  `Agua 500.`, «peso ochenta y cuatro punto tres» → `Peso 84.3.`. Efecto
+  lateral: también convierte el artículo «un/una» en «1».
 
 Con créditos activos **`/v1/models` ya funciona** (antes daba 403), así que
 descubrir ids vigentes ya no necesita el truco de sondear `chat/completions`.
@@ -174,6 +189,8 @@ sesión las "arreglaría" de vuelta.
 
     **La conversión de números dictados se aplica solo dentro de `agua`/`peso`**,
     nunca al texto completo: «un poco de arroz» se volvería «1 poco de arroz».
+    Es una red de seguridad — `format=true` en `/v1/stt` ya devuelve los
+    números en dígitos.
 
 12. **Sin migración para la voz.** Una nota de voz se guarda en
     `TelegramUpdate.tipo` como `texto`. Agregar un valor `voz` al enum obligaría
@@ -237,6 +254,13 @@ reenviaba la imagen entera (~2 400 tokens) para volver a truncarse igual.
 `voice` ni siquiera estaba en la interfaz `TelegramUpdate`, así que caía en el
 `if (!texto && !msg.photo) return null`. Un `return null` silencioso en un
 router de mensajes es indistinguible de un bot caído.
+
+Y al arreglarlo se cometió el error contrario: se concluyó que **xAI no
+transcribía audio** a partir de tres sondeos (`/v1/audio/transcriptions` → 404,
+`input_modalities` sin audio, `input_audio` → 400) y se metió un segundo
+proveedor con credencial nueva. Existía `/v1/stt` todo el tiempo, documentado.
+Alejandro lo encontró leyendo los docs. **Sondear el dialecto de otro proveedor
+no responde qué sabe hacer este; para eso está su documentación.**
 
 ### El registro por IA que nunca llegó (4 de agosto de 2026)
 
