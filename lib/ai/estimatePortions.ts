@@ -88,8 +88,10 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
 
   // Con foto el tope tiene que ser más holgado: los tokens de razonamiento de
   // `grok-4.5` salen del mismo presupuesto que el JSON, y una respuesta
-  // cortada a la mitad no se puede reparar, solo repetir.
-  const maxTokens = input.imagen ? 2000 : 1200;
+  // cortada a la mitad no se puede reparar, solo repetir. Se subió al agregar
+  // las macros de `libre`, que alargan la respuesta: un truncado sale como 503
+  // y el registro cae a `pendiente` con 0 kcal, indistinguible de un bug.
+  const maxTokens = input.imagen ? 2500 : 1500;
 
   const res = await xaiChat({ modelo, system: SYSTEM_ESTIMACION, user: contenido, maxTokens });
 
@@ -120,6 +122,16 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
     });
     parsed = parseEstimacion(reintento.contenido);
     if (!parsed.ok) throw new AiUnavailableError("parseo", parsed.issues);
+  }
+
+  // Un JSON válido no es una estimación válida. Preguntado a ciegas el modelo
+  // devuelve `{"items": [], "porciones": [], "confianza": 0.1}`, que parsea
+  // perfecto y produce una tarjeta vacía que al confirmar crea un registro de
+  // 0 kcal. Se trata como fallo: río arriba la entrada se guarda `pendiente`
+  // con el texto y la foto intactos y se reclasifica después (§3.2-D).
+  if (!parsed.estimacion.porciones.some((p) => p.porciones > 0)) {
+    logEvent("ia_estimacion_vacia", { conFoto: Boolean(input.imagen), conTexto: Boolean(input.texto) });
+    throw new AiUnavailableError("parseo", "estimación vacía");
   }
 
   // Si el modelo dice haber reconocido un platillo guardado, se resuelve su id.

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { estimatePortions } from "@/lib/ai/estimatePortions";
 import { loadDishContext } from "@/lib/ai/dishContext";
 import { AiUnavailableError, aiConfig } from "@/lib/ai/provider";
-import { FOOD_GROUPS, computePortionMacros } from "@/lib/nutrition/groups";
+import { FOOD_GROUPS, macrosDePorcion } from "@/lib/nutrition/groups";
 import { logEvent, errorInfo } from "@/lib/log";
 
 const MAX_INTENTOS = 5;
@@ -85,6 +85,10 @@ export async function reclassifyPending(limite = 5): Promise<ReclassifyResult> {
             nombre: i.nombre,
             cantidad: i.cantidad ?? null,
             orden,
+            kcal: i.kcal,
+            proteinaG: i.proteinaG,
+            carbosG: i.carbosG,
+            grasaG: i.grasaG,
           }))
         : estimado.estimacion.porciones.map((p, orden) => ({
             grupo: p.grupo,
@@ -92,6 +96,10 @@ export async function reclassifyPending(limite = 5): Promise<ReclassifyResult> {
             nombre: p.detalle ?? null,
             cantidad: null,
             orden,
+            kcal: p.kcal,
+            proteinaG: p.proteinaG,
+            carbosG: p.carbosG,
+            grasaG: p.grasaG,
           }));
 
       await prisma.$transaction(async (tx) => {
@@ -110,7 +118,7 @@ export async function reclassifyPending(limite = 5): Promise<ReclassifyResult> {
               cantidad: p.cantidad,
               orden: p.orden,
               porciones: p.porciones,
-              ...computePortionMacros(tasa, p.porciones),
+              ...macrosDePorcion(tasa, p.porciones, p),
             },
           });
         }

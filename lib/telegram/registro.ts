@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { estimatePortions } from "@/lib/ai/estimatePortions";
 import { loadDishContext } from "@/lib/ai/dishContext";
 import { AiUnavailableError, MOTIVO_LEGIBLE } from "@/lib/ai/provider";
-import { FOOD_GROUPS, computePortionMacros, DISPLAY_GROUPS } from "@/lib/nutrition/groups";
+import { FOOD_GROUPS, macrosDePorcion, DISPLAY_GROUPS } from "@/lib/nutrition/groups";
 import { localDayString } from "@/lib/date";
 import { logEvent } from "@/lib/log";
 import { sendMessage, editMessageText, type InlineButton } from "./api";
@@ -58,7 +58,7 @@ function macrosDe(estimacion: Estimacion) {
     (acc, p) => {
       const tasa = FOOD_GROUPS.find((g) => g.clave === p.grupo);
       if (!tasa) return acc;
-      const m = computePortionMacros(tasa, p.porciones);
+      const m = macrosDePorcion(tasa, p.porciones, p);
       return {
         kcal: acc.kcal + m.kcal,
         proteinaG: acc.proteinaG + m.proteinaG,
@@ -220,6 +220,10 @@ export async function confirmarRegistro(chatId: string, sesion: EstadoSesion): P
         nombre: i.nombre,
         cantidad: i.cantidad ?? null,
         orden,
+        kcal: i.kcal,
+        proteinaG: i.proteinaG,
+        carbosG: i.carbosG,
+        grasaG: i.grasaG,
       }))
     : sesion.estimacion.porciones.map((p, orden) => ({
         grupo: p.grupo,
@@ -227,6 +231,10 @@ export async function confirmarRegistro(chatId: string, sesion: EstadoSesion): P
         nombre: p.detalle ?? null,
         cantidad: null,
         orden,
+        kcal: p.kcal,
+        proteinaG: p.proteinaG,
+        carbosG: p.carbosG,
+        grasaG: p.grasaG,
       }));
 
   await prisma.$transaction(async (tx) => {
@@ -261,7 +269,7 @@ export async function confirmarRegistro(chatId: string, sesion: EstadoSesion): P
           cantidad: p.cantidad,
           orden: p.orden,
           porciones: p.porciones,
-          ...computePortionMacros(tasa, p.porciones),
+          ...macrosDePorcion(tasa, p.porciones, p),
         },
       });
     }

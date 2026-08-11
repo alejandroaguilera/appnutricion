@@ -7,7 +7,7 @@ import { Trash2 } from "lucide-react";
 import { useHoyData } from "@/lib/hooks/useHoyData";
 import { getMealEntry, getPortionsForMeal, updateMealEntry, deleteMealEntry } from "@/lib/db/mealEntries";
 import { getDayLog } from "@/lib/db/dayLogs";
-import { computePortionMacros } from "@/lib/nutrition/groups";
+import { macrosDePorcion, macrosPropiasGuardadas } from "@/lib/nutrition/groups";
 import { triggerFlush } from "@/lib/sync/flush";
 import { Screen } from "@/components/shell/Screen";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,10 @@ export default function EditarComidaPage() {
           nombre: p.nombre,
           cantidad: p.cantidad,
           porciones: p.porciones,
+          // Una porción `libre` lleva macros propias que ninguna tasa puede
+          // reproducir. Se recuperan de lo guardado; sin esto, abrir una comida
+          // con cerveza y volver a guardarla la dejaría en 0 kcal.
+          ...(macrosPropiasGuardadas(p) ?? {}),
         }))
       );
     })();
@@ -71,7 +75,7 @@ export default function EditarComidaPage() {
           cantidad: p.cantidad,
           orden: orden++,
           porciones: p.porciones,
-          ...computePortionMacros(grupo, p.porciones),
+          ...macrosDePorcion(grupo, p.porciones, p),
         });
       }
       await updateMealEntry({ ...entry, titulo: titulo.trim() || null }, nuevas, fecha);

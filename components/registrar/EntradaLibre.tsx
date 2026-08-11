@@ -29,7 +29,7 @@ export function EntradaLibre({
 }: {
   slotNombre: string;
   onEstimacion: (r: ResultadoEstimacion) => void;
-  onSinIa: (texto: string, fotoId: string | null) => void;
+  onSinIa: (texto: string, fotoId: string | null, motivo: string | null) => void;
 }) {
   const [texto, setTexto] = useState("");
   const [fotoId, setFotoId] = useState<string | null>(null);
@@ -75,7 +75,12 @@ export function EntradaLibre({
         // La IA no está disponible: no se pierde el registro. Se guarda como
         // pendiente con el texto y la foto intactos y se reclasifica después
         // (§3.2-D). Nunca se descarta.
-        onSinIa(texto.trim(), fotoId);
+        //
+        // El motivo se avisa antes de guardar: sin él, la comida aparecía en
+        // Hoy con 0 kcal y nada explicaba por qué — indistinguible de un bug.
+        // Telegram ya decía la causa desde la ronda anterior.
+        const motivo = (await res.json().catch(() => null))?.motivo as string | undefined;
+        onSinIa(texto.trim(), fotoId, motivo ?? null);
         return;
       }
       if (!res.ok) {
@@ -94,7 +99,7 @@ export function EntradaLibre({
         texto: texto.trim(),
       });
     } catch {
-      onSinIa(texto.trim(), fotoId);
+      onSinIa(texto.trim(), fotoId, "no pude conectarme al modelo");
     } finally {
       setOcupado(null);
     }

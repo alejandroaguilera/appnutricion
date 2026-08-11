@@ -9,26 +9,46 @@ import {
 import { SYSTEM_CHAT, contextoComoTexto, type ContextoChat } from "./promptChat";
 import { loadDishContext } from "./dishContext";
 import { barrasDelDia } from "@/lib/telegram/registro";
+import { FOOD_GROUPS, bucketNombreForClave, computePortionMacros } from "@/lib/nutrition/groups";
 import { localDayString } from "@/lib/date";
 import { logEvent } from "@/lib/log";
 
 export const MAX_TURNOS = 8;
 
+// El plan vigente tiene 17 platillos activos: con el corte anterior de 20 (y de
+// 15 al imprimirlos) se quedaban recetas fuera sin que nada lo dijera.
+const LIMITE_PLATILLOS = 40;
+
 // Arma el contexto del día con lo que ya existe: sin esto, "¿qué puedo cenar
-// hoy?" solo puede contestarse con generalidades de internet. Con esto sabe
-// qué le falta y qué suele comer.
+// hoy?" solo puede contestarse con generalidades de internet, y "¿cuál es la
+// receta de X?" con una receta de internet en vez de la suya.
 export async function construirContexto(fecha = localDayString()): Promise<ContextoChat> {
   const [barras, dia, plan, dishes] = await Promise.all([
     barrasDelDia(fecha),
     prisma.dayLog.findUnique({
       where: { fecha: new Date(`${fecha}T00:00:00.000Z`) },
-      include: { meals: { where: { archivadoEn: null }, include: { portions: true } } },
+      include: {
+        meals: {
+          where: { archivadoEn: null },
+          orderBy: { horaRegistro: "asc" },
+          include: { portions: true, slot: { select: { nombre: true } } },
+        },
+      },
     }),
-    prisma.nutritionPlan.findFirst({ where: { activo: true } }),
-    loadDishContext(20),
+    prisma.nutritionPlan.findFirst({
+      where: { activo: true },
+      include: {
+        slots: {
+          orderBy: { orden: "asc" },
+          include: { targets: { include: { foodGroup: { select: { clave: true } } } } },
+        },
+      },
+    }),
+    loadDishContext(LIMITE_PLATILLOS),
   ]);
 
-  const portions = dia?.meals.flatMap((m) => m.portions) ?? [];
+  const meals = dia?.meals ?? [];
+  const portions = meals.flatMap((m) => m.portions);
 
   return {
     fecha,
@@ -37,8 +57,60 @@ export async function construirContexto(fecha = localDayString()): Promise<Conte
     kcalObjetivo: plan?.kcalObjetivo ?? 0,
     proteinaG: portions.reduce((a, p) => a + p.proteinaG, 0),
     proteinaObjetivo: plan?.proteinaG ?? 0,
-    nEntradas: dia?.meals.length ?? 0,
-    platillos: dishes.map((d) => ({ nombre: d.nombre, alias: d.alias })),
+    carbosObjetivo: plan?.carbosG ?? 0,
+    grasaObjetivo: plan?.grasaG ?? 0,
+    fibraObjetivo: plan?.fibraG ?? 0,
+    aguaObjetivoL: plan?.aguaL ?? 0,
+    planNombre: plan?.nombre ?? null,
+    nEntradas: meals.length,
+
+    tiempos: (plan?.slots ?? []).map((s) => ({
+      nombre: s.nombre,
+      hora: s.horaSugerida,
+      esOpcional: s.esOpcional,
+      // Los targets se siembran contra un subgrupo representativo (proteína
+      // contra aoa_muy_bajo, grasa contra grasa_sin_proteina), así que se
+      // etiquetan con el nombre de la barra que ve el atleta y no con el
+      // nombre técnico del FoodGroup — es el mismo rollup del §7.2.
+      targets: s.targets
+        .filter((t) => t.porciones > 0)
+        .map((t) => ({ nombre: bucketNombreForClave(t.foodGroup.clave), porciones: t.porciones })),
+    })),
+
+    comidasDeHoy: meals.map((m) => ({
+      tiempo: m.slot?.nombre ?? m.clave,
+      titulo: m.titulo ?? m.textoLibre ?? "sin nombre",
+      kcal: m.portions.reduce((a, p) => a + p.kcal, 0),
+      proteinaG: m.portions.reduce((a, p) => a + p.proteinaG, 0),
+      pendiente: m.estadoClasificacion === "pendiente",
+    })),
+
+    platillos: dishes.map((d) => {
+      const macros = d.components.reduce(
+        (acc, c) => {
+          const tasa = FOOD_GROUPS.find((g) => g.clave === c.foodGroupClave);
+          if (!tasa) return acc;
+          const m = computePortionMacros(tasa, c.porciones);
+          return { kcal: acc.kcal + m.kcal, proteinaG: acc.proteinaG + m.proteinaG };
+        },
+        { kcal: 0, proteinaG: 0 }
+      );
+
+      return {
+        nombre: d.nombre,
+        alias: d.alias,
+        tipoComida: d.tipoComida,
+        componentes: d.components.map((c) => ({
+          nombre: c.foodItemNombre ?? c.foodGroupClave,
+          // Los gramos del menú mandan sobre la medida casera del catálogo:
+          // "138 g cocida" es más accionable que "1/3 taza".
+          cantidad: c.notaLibre ?? c.cantidadPorcion,
+          grupo: c.foodGroupClave,
+          porciones: c.porciones,
+        })),
+        ...macros,
+      };
+    }),
   };
 }
 

@@ -4,7 +4,7 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-08-11 (ronda 5)
+**Última actualización:** 2026-08-12 (ronda 6)
 
 ## Plan vigente: Bloque 2 (menú de Alma Lomeli)
 
@@ -181,10 +181,40 @@ sesión las "arreglaría" de vuelta.
    estructura de navegación. Se eligió Hoy / Historial / Plan / Ajustes, con
    Registrar como flujo a pantalla completa lanzado desde Hoy, y la revisión
    semanal colgando de Historial.
-4. **Los macros nunca los aporta el modelo.** La IA devuelve nombre, cantidad,
-   grupo y porciones; las calorías y macros siempre salen de SMAE × porciones
-   y se congelan (§7.1). Si el modelo pudiera aportar kcal, la adherencia y el
-   histórico dejarían de ser comparables entre registros.
+4. **Los macros no los aporta el modelo, salvo en `libre`.** La IA devuelve
+   nombre, cantidad, grupo y porciones; las calorías y macros salen de
+   SMAE × porciones y se congelan (§7.1). Si el modelo pudiera aportar kcal para
+   los grupos del SMAE, la adherencia y el histórico dejarían de ser comparables
+   entre registros.
+
+   **La excepción, desde el 2026-08-12: el grupo `libre`.** El SMAE no tiene
+   grupo para el alcohol, los refrescos, los dulces ni los productos de marca.
+   Todo eso caía en `libre`, cuya tasa es 0, y una Michelob Ultra de 95 kcal se
+   registraba como 95 kcal de nada; forzarla a `cereal` habría dado la energía
+   casi bien a cambio de 20 g de carbohidratos inventados y de ensuciar la barra
+   de cereales. Ahora el modelo puede devolver `kcal/proteinaG/carbosG/grasaG`
+   **por porción** para `libre` y solo para `libre`:
+
+   - La tasa de `libre` ya era cero, así que no se pisa ningún número del SMAE:
+     se rellena un hueco.
+   - `libre` no está en `DISPLAY_GROUPS`, así que barras y adherencia no cambian.
+     Solo suma a kcal y macros del día.
+   - La regla se aplica **en código**, no solo en el prompt: `parseEstimacion`
+     tira las macros que vengan en cualquier otro grupo, y `macrosDePorcion`
+     (`lib/nutrition/groups.ts`) es el único lugar donde vive la excepción. Los
+     seis sitios que congelaban macros pasan por ahí.
+   - **Sin migración ni columna nueva.** `MealEntryPortion` ya tenía las cuatro
+     columnas y el DTO de red ya las mandaba. La tasa unitaria se recupera al
+     editar dividiendo lo guardado entre las porciones (`macrosPropiasGuardadas`):
+     el congelado fue lineal, así que dividir es exacto. Sin eso, abrir una
+     comida con cerveza en el editor y volver a guardarla la dejaba en 0 kcal,
+     porque `app/comida/[mealId]/page.tsx` recalcula.
+
+   **El prompt de estimación ahora incluye la tabla de tasas del SMAE** y qué es
+   una porción de cada grupo. No estaba: el modelo tenía que deducir de su
+   preentrenamiento cuánto vale una porción y qué distingue `aoa_muy_bajo` de
+   `aoa_bajo` de `aoa_moderado` (40 / 55 / 75 kcal), y toda la conversión
+   depende de ese dato.
 5. **Fotos en Postgres, no en disco.** La app en Dokploy no tiene volumen
    persistente: un archivo en el contenedor se pierde en cada redespliegue.
    Se reducen a ~1024 px en el cliente (`createImageBitmap` + canvas, cero
@@ -300,6 +330,65 @@ sesión las "arreglaría" de vuelta.
 - La verificación real es `curl` contra la URL en vivo. No hay runtime local.
 
 ## Historia que conviene no repetir
+
+### El respaldo que existía tres veces y faltaba en la cuarta (12 de agosto de 2026)
+
+«Subo una foto con descripción, guarda la foto pero la estimación siempre sale
+en 0 calorías.» No era el transporte: la foto se sube aparte
+(`PUT /api/photos/:id`), `/api/estimate` la relee de Postgres y llega al modelo.
+
+`parseEstimacion` rellenaba `porciones` desde `items`, pero **nunca al revés**, y
+`ConfirmarEstimacion` armaba la tarjeta **solo desde `items`**. Una respuesta que
+traía únicamente el agregado `porciones` —lo que el modelo devuelve con bastante
+frecuencia al mirar una foto— parseaba como válida con `items: []`: tarjeta
+vacía, total 0 kcal, botón Confirmar apagado.
+
+Con texto solo no se notaba porque el atajo de catálogo
+(`estimatePortions.ts`, coincidencia local) sintetiza **las dos** listas. Con
+foto ese atajo se salta a propósito, así que siempre se llega al modelo.
+
+Lo que lo hace vale la pena recordar: **Telegram, la reclasificación diferida y
+el ajuste por grupo del chat tenían cada uno su propio
+`items.length ? items : porciones`.** Tres implementaciones del mismo respaldo,
+copiado a mano, y el cuarto consumidor sin él. Ahora el relleno es bidireccional
+y vive en `parseEstimacion`, que es por donde pasan los cuatro.
+
+De la misma tanda: `estimatePortions` ahora **falla** si no queda ninguna porción
+mayor que cero, en vez de devolver una estimación válida y hueca — es la regla de
+«un JSON válido no es una estimación válida» aplicada también a este caso, no
+solo al de la foto perdida. Y el 503 ya no se traga el motivo: `/api/estimate`
+devuelve `motivo` (resuelto en el servidor, porque `MOTIVO_LEGIBLE` vive junto a
+`aiConfig`, que lee `process.env`) y se guarda en `MealEntry.notas` para que
+`MealRow` lo enseñe. Un renglón de 0 kcal sin explicación es indistinguible de un
+bug — que es exactamente cómo se reportó éste.
+
+### El bot que no conocía las recetas del plan (12 de agosto de 2026)
+
+«¿Cuál es la receta de pasta con carne molida?» contestaba con una receta
+genérica de internet —1 taza de pasta, 100 g de carne— en vez de la suya: 138 g
+de pasta cocida (2.5 cereal), 180 g de carne molida (6.0 aoa_bajo), ½ aguacate.
+
+El dato estaba en la base y **ya venía cargado en memoria**: `loadDishContext`
+hace el `include` de los `DishComponent` completos, y `chat.ts` los tiraba
+quedándose con `nombre`; `contextoComoTexto` tiraba además los alias y cortaba a
+15 platillos. El `include` se pagaba y no se usaba. `PlanMealSlot` y sus targets
+nunca se consultaban en el camino de `/chat`.
+
+Peor: el prompt prometía «tienes su lista de platillos frecuentes» y «aterriza en
+porciones y alimentos concretos» con datos que no existían, mientras otra regla
+del mismo prompt prohibía inventar cifras. Puesto a elegir entre dos
+instrucciones contradictorias, el modelo inventó.
+
+Detalle que costaba los gramos: `DishComponent.notaLibre` («138 g cocida»,
+«180 g») solo se leía **como respaldo del nombre** cuando el componente no tenía
+`FoodItem`. En cuanto lo tenía —que es el caso normal— la cantidad real se
+perdía. Ahora viaja en su propio campo.
+
+`/chat` recibe hoy cuatro bloques: plan vigente con los cinco tiempos y su target
+por tiempo, el día de hoy comida por comida (con los objetivos también cuando no
+hay nada registrado, que es justo cuando se pregunta «¿qué desayuno?»), las
+recetas guardadas con cantidades y kcal, y la tabla de tasas del SMAE para que
+sus equivalencias coincidan con las que la app enseña en pantalla.
 
 ### Los fallos que se disfrazaban de otra cosa (6 de agosto de 2026)
 

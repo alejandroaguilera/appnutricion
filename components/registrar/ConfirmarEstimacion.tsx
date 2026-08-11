@@ -4,10 +4,11 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EditorPorciones, type PorcionEditable } from "./EditorPorciones";
 import { cn } from "@/lib/utils";
+import type { MacrosPorPorcion } from "@/lib/nutrition/groups";
 import type { FoodGroupRecord, FoodItemRecord } from "@/lib/db/types";
 import type { ResultadoEstimacion } from "./EntradaLibre";
 
-export interface PorcionConfirmada {
+export interface PorcionConfirmada extends MacrosPorPorcion {
   foodGroupId: string;
   // Obligatorio, no opcional: cuando faltaba, el payload salía sin la clave y
   // el servidor rechazaba el registro entero con un 422.
@@ -55,6 +56,12 @@ export function ConfirmarEstimacion({
         nombre: i.nombre,
         cantidad: i.cantidad ?? null,
         porciones: i.porciones,
+        // Solo llegan pobladas para el grupo `libre` (`parseEstimacion` tira
+        // las demás): una cerveza vale sus 95 kcal, no las 0 de la tasa.
+        kcal: i.kcal,
+        proteinaG: i.proteinaG,
+        carbosG: i.carbosG,
+        grasaG: i.grasaG,
       }))
   );
   const [guardando, setGuardando] = useState(false);
@@ -72,6 +79,10 @@ export function ConfirmarEstimacion({
             porciones: p.porciones,
             nombre: p.nombre,
             cantidad: p.cantidad,
+            kcal: p.kcal,
+            proteinaG: p.proteinaG,
+            carbosG: p.carbosG,
+            grasaG: p.grasaG,
           }))
       );
     } finally {

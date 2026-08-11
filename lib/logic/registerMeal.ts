@@ -1,6 +1,6 @@
 import { ensureDayLog } from "@/lib/db/dayLogs";
 import { saveMealEntry } from "@/lib/db/mealEntries";
-import { computePortionMacros } from "@/lib/nutrition/groups";
+import { macrosDePorcion, type MacrosPorPorcion } from "@/lib/nutrition/groups";
 import type {
   DayLogRecord,
   MealEntryRecord,
@@ -10,7 +10,7 @@ import type {
   EstadoClasificacion,
 } from "@/lib/db/types";
 
-export interface RegisterPortionInput {
+export interface RegisterPortionInput extends MacrosPorPorcion {
   foodGroupId: string;
   foodItemId: string | null;
   porciones: number;
@@ -35,6 +35,7 @@ export async function registerMeal(params: {
   dishId?: string | null;
   titulo?: string | null;
   textoLibre?: string | null;
+  notas?: string | null;
   fueraDeCasa?: boolean;
   estadoClasificacion?: EstadoClasificacion;
   confianzaIa?: number | null;
@@ -49,6 +50,7 @@ export async function registerMeal(params: {
     dishId = null,
     titulo = null,
     textoLibre = null,
+    notas = null,
     fueraDeCasa = false,
     estadoClasificacion = "clasificado",
     confianzaIa = null,
@@ -66,7 +68,7 @@ export async function registerMeal(params: {
     .map((p, i) => {
       const group = groupById.get(p.foodGroupId);
       if (!group) throw new Error(`FoodGroup no encontrado en caché: ${p.foodGroupId}`);
-      const macros = computePortionMacros(group, p.porciones);
+      const macros = macrosDePorcion(group, p.porciones, p);
       return {
         id: crypto.randomUUID(),
         mealEntryId: "", // se completa abajo una vez que se conoce el id de la entrada
@@ -92,7 +94,7 @@ export async function registerMeal(params: {
     titulo,
     textoLibre,
     fueraDeCasa,
-    notas: null,
+    notas,
     version: 1,
     origen,
     estadoClasificacion,

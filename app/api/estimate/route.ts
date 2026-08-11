@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { withRoute, jsonError } from "@/lib/http/route";
 import { estimatePortions } from "@/lib/ai/estimatePortions";
 import { loadDishContext } from "@/lib/ai/dishContext";
-import { AiUnavailableError } from "@/lib/ai/provider";
+import { AiUnavailableError, MOTIVO_LEGIBLE } from "@/lib/ai/provider";
 
 // POST { texto?, fotoId?, slotNombre? } → estimación para confirmar.
 //
@@ -57,7 +57,10 @@ export const POST = withRoute<unknown>("estimate.post", async (req: NextRequest)
     // (guarda como pendiente y reintenta luego) de "esta petición está mal"
     // (no la reintentes nunca).
     if (err instanceof AiUnavailableError) {
-      return jsonError(503, "ia_no_disponible", { causa: err.causa });
+      // `motivo` va resuelto desde aquí y no en el cliente: MOTIVO_LEGIBLE vive
+      // junto a `aiConfig`, que lee process.env, y no tiene por qué acabar en
+      // el bundle del navegador.
+      return jsonError(503, "ia_no_disponible", { causa: err.causa, motivo: MOTIVO_LEGIBLE[err.causa] });
     }
     throw err;
   }

@@ -78,3 +78,62 @@ export function computePortionMacros(group: GroupMacros, porciones: number): Gro
     grasaG: group.grasaG * porciones,
   };
 }
+
+/** Macros declaradas para UNA porción del ítem, no para el total. */
+export interface MacrosPorPorcion {
+  kcal?: number | null;
+  proteinaG?: number | null;
+  carbosG?: number | null;
+  grasaG?: number | null;
+}
+
+export function tieneMacrosPropias(m: MacrosPorPorcion | null | undefined): boolean {
+  return typeof m?.kcal === "number" && Number.isFinite(m.kcal) && m.kcal > 0;
+}
+
+// La ÚNICA excepción a "los macros salen del SMAE" (§7.1): el grupo `libre`.
+//
+// El SMAE no tiene grupo de alcohol, refrescos ni productos de marca. Todo eso
+// caía en `libre`, cuya tasa es 0, y una cerveza de 95 kcal se registraba como
+// 95 kcal de nada. Como la tasa de `libre` YA es cero, aceptar macros propias
+// aquí no pisa ningún número del SMAE: rellena un hueco. Y `libre` no está en
+// DISPLAY_GROUPS, así que no toca barras ni adherencia — solo kcal y macros.
+//
+// Para los otros diez grupos la tasa del SMAE sigue siendo la única fuente, y
+// esta función lo hace cumplir en código: el override se ignora sin más.
+export function macrosDePorcion(
+  group: GroupMacros & { clave: FoodGroupClave },
+  porciones: number,
+  propias?: MacrosPorPorcion | null
+): GroupMacros {
+  if (group.clave !== "libre" || !tieneMacrosPropias(propias)) {
+    return computePortionMacros(group, porciones);
+  }
+  return {
+    kcal: (propias?.kcal ?? 0) * porciones,
+    proteinaG: (propias?.proteinaG ?? 0) * porciones,
+    carbosG: (propias?.carbosG ?? 0) * porciones,
+    grasaG: (propias?.grasaG ?? 0) * porciones,
+  };
+}
+
+// Recupera la tasa unitaria de una porción `libre` ya guardada. No hay columna
+// que la recuerde y no se agrega una: el guardado fue lineal (tasa × porciones),
+// así que dividir es exacto. Sin esto, abrir una comida con cerveza en el editor
+// y volver a guardarla la dejaría en 0 kcal, porque el editor recalcula.
+export function macrosPropiasGuardadas(portion: {
+  foodGroupClave?: FoodGroupClave | null;
+  porciones: number;
+  kcal: number;
+  proteinaG: number;
+  carbosG: number;
+  grasaG: number;
+}): MacrosPorPorcion | null {
+  if (portion.foodGroupClave !== "libre" || portion.porciones <= 0 || portion.kcal <= 0) return null;
+  return {
+    kcal: portion.kcal / portion.porciones,
+    proteinaG: portion.proteinaG / portion.porciones,
+    carbosG: portion.carbosG / portion.porciones,
+    grasaG: portion.grasaG / portion.porciones,
+  };
+}

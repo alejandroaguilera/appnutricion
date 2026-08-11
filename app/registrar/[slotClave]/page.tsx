@@ -120,7 +120,7 @@ export default function RegistrarSlotPage() {
   // Sin IA disponible: se guarda igual, con el texto y la foto intactos y en
   // estado `pendiente`. Un trabajo en segundo plano lo reclasifica cuando
   // vuelva la conexión — nunca se descarta el registro (§3.2-D).
-  const handleSinIa = (texto: string, fotoId: string | null) =>
+  const handleSinIa = (texto: string, fotoId: string | null, motivo: string | null) =>
     registrar({
       fecha,
       slot,
@@ -129,6 +129,10 @@ export default function RegistrarSlotPage() {
       textoLibre: texto || null,
       fotoPrincipalId: fotoId,
       estadoClasificacion: "pendiente",
+      // El motivo se guarda, no se muestra y ya: la pantalla salta a Hoy en
+      // cuanto se registra, y un aviso que desaparece deja el renglón de 0 kcal
+      // sin explicación. Aquí sobrevive y lo lee `MealRow`.
+      notas: motivo,
       portionsInput: [],
     });
 

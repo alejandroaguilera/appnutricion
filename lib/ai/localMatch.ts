@@ -6,6 +6,10 @@ export interface DishComponentContext {
   foodItemId: string | null;
   foodItemNombre: string | null;
   porciones: number;
+  /** "138 g cocida", "1/2 pieza" — la cantidad real transcrita del menú. */
+  notaLibre: string | null;
+  /** "1/3 taza", "30 g" — equivalencia de una porción del ítem del catálogo. */
+  cantidadPorcion: string | null;
 }
 
 export interface DishMatchContext {
@@ -13,6 +17,7 @@ export interface DishMatchContext {
   nombre: string;
   alias: string[];
   vecesUsado: number;
+  tipoComida: string[];
   components: DishComponentContext[];
 }
 

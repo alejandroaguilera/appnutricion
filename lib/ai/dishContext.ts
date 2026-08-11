@@ -14,7 +14,7 @@ export async function loadDishContext(limite = 20): Promise<DishMatchContext[]> 
       components: {
         include: {
           foodGroup: { select: { clave: true } },
-          foodItem: { select: { nombre: true } },
+          foodItem: { select: { nombre: true, cantidadPorcion: true } },
         },
       },
     },
@@ -25,12 +25,18 @@ export async function loadDishContext(limite = 20): Promise<DishMatchContext[]> 
     nombre: d.nombre,
     alias: d.alias,
     vecesUsado: d.vecesUsado,
+    tipoComida: d.tipoComida,
     components: d.components.map((c) => ({
       foodGroupId: c.foodGroupId,
       foodGroupClave: c.foodGroup.clave,
       foodItemId: c.foodItemId,
       foodItemNombre: c.foodItem?.nombre ?? c.notaLibre ?? null,
       porciones: c.porciones,
+      // `notaLibre` aparte y no solo como respaldo del nombre: es donde viven
+      // los gramos reales del menú de la nutrióloga ("138 g cocida", "180 g"),
+      // y se perdían en cuanto el componente tenía un FoodItem asociado.
+      notaLibre: c.notaLibre,
+      cantidadPorcion: c.foodItem?.cantidadPorcion ?? null,
     })),
   }));
 }

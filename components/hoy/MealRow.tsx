@@ -62,7 +62,12 @@ export function MealRow({
           <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted">
             <Clock className="size-3" />
             {hora}
-            {pendiente && <span className="text-warning"> · sin clasificar</span>}
+            {pendiente && (
+              <span className="truncate text-warning">
+                {" "}
+                · sin clasificar{entry.notas ? ` (${entry.notas})` : ""}
+              </span>
+            )}
           </p>
         </div>
 

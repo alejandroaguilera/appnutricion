@@ -1,4 +1,4 @@
-import { computePortionMacros } from "./groups";
+import { macrosDePorcion, type MacrosPorPorcion } from "./groups";
 import type { FoodGroupRecord, FoodItemRecord, MealEntryPortionRecord } from "@/lib/db/types";
 
 export interface Equivalencia {
@@ -34,13 +34,17 @@ function escalarMedida(cantidadPorcion: string, porciones: number): string | nul
 // Los gramos solo se muestran cuando se conocen de verdad (22 de 152 ítems):
 // el catálogo del SMAE habla en medidas caseras, no en peso, y un gramaje
 // inventado sería peor que no mostrar ninguno.
+// `propias` va aparte y no dentro de `portion` a propósito: en un
+// MealEntryPortionRecord los campos kcal/proteinaG/… son el TOTAL ya congelado,
+// mientras que aquí se esperan por porción. Mezclarlos multiplicaría dos veces.
 export function equivalenciaDe(
   portion: Pick<MealEntryPortionRecord, "porciones" | "nombre" | "cantidad" | "foodGroupId">,
   foodItem: FoodItemRecord | null,
-  group: FoodGroupRecord | null
+  group: FoodGroupRecord | null,
+  propias?: MacrosPorPorcion | null
 ): Equivalencia {
   const macros = group
-    ? computePortionMacros(group, portion.porciones)
+    ? macrosDePorcion(group, portion.porciones, propias)
     : { kcal: 0, proteinaG: 0, carbosG: 0, grasaG: 0 };
 
   const titulo = portion.nombre ?? foodItem?.nombre ?? group?.nombre ?? "Porción";

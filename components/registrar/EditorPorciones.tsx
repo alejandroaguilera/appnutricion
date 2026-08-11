@@ -3,15 +3,16 @@
 import { useMemo, useState } from "react";
 import { Minus, Plus, Trash2, Link2 } from "lucide-react";
 import { equivalenciaDe, totalDe } from "@/lib/nutrition/equivalencias";
-import { computePortionMacros } from "@/lib/nutrition/groups";
+import { macrosDePorcion, type MacrosPorPorcion } from "@/lib/nutrition/groups";
 import { BuscadorAlimento } from "./BuscadorAlimento";
 import { PorcionesSueltasGrid } from "./PorcionesSueltasGrid";
 import { Button } from "@/components/ui/button";
 import type { FoodGroupRecord, FoodItemRecord } from "@/lib/db/types";
 
 // Una porción editable, agnóstica de si viene de la IA, de un platillo o de
-// una edición a mano.
-export interface PorcionEditable {
+// una edición a mano. Las macros propias solo las trae un ítem del grupo
+// `libre` (una cerveza, un refresco); `macrosDePorcion` ignora el resto.
+export interface PorcionEditable extends MacrosPorPorcion {
   id: string;
   foodGroupId: string;
   foodItemId: string | null;
@@ -49,7 +50,7 @@ export function EditorPorciones({
 
   const conMacros = porciones.map((p) => {
     const g = grupoPorId.get(p.foodGroupId);
-    return { ...p, ...(g ? computePortionMacros(g, p.porciones) : { kcal: 0, proteinaG: 0, carbosG: 0, grasaG: 0 }) };
+    return { ...p, ...(g ? macrosDePorcion(g, p.porciones, p) : { kcal: 0, proteinaG: 0, carbosG: 0, grasaG: 0 }) };
   });
   const total = totalDe(conMacros);
 
@@ -125,7 +126,7 @@ export function EditorPorciones({
       <ul className="flex flex-col gap-2">
         {porciones.map((p) => {
           const item = p.foodItemId ? (itemPorId.get(p.foodItemId) ?? null) : null;
-          const eq = equivalenciaDe(p, item, grupoPorId.get(p.foodGroupId) ?? null);
+          const eq = equivalenciaDe(p, item, grupoPorId.get(p.foodGroupId) ?? null, p);
           return (
             <li key={p.id} className="rounded-xl border border-border bg-surface p-3">
               <div className="flex items-start justify-between gap-2">
