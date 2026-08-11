@@ -362,6 +362,33 @@ devuelve `motivo` (resuelto en el servidor, porque `MOTIVO_LEGIBLE` vive junto a
 `MealRow` lo enseñe. Un renglón de 0 kcal sin explicación es indistinguible de un
 bug — que es exactamente cómo se reportó éste.
 
+### El atajo local que inventaba comida (12 de agosto de 2026)
+
+Probando las estimaciones ya arregladas, «pechuga a la plancha con arroz y una
+michelada» se registró como pechuga, arroz, **frijoles y brócoli** — y la
+michelada desapareció.
+
+No fue el modelo: ni siquiera se le llamó. `matchDishLocal` pegó con el alias
+«pechuga con arroz» del platillo «Pechuga a la plancha con arroz y frijoles»
+(cobertura de tokens 3/3 = 1.0) y el atajo **sustituye la descripción completa**
+por los componentes del platillo guardado.
+
+La cobertura se medía solo en una dirección: qué proporción de las palabras del
+*platillo* aparece en lo que escribió el atleta. Nunca al revés. Así que un
+platillo de nombre corto se traga cualquier descripción que lo contenga, por
+larga que sea, y todo lo demás que se haya comido se pierde en silencio.
+
+Ahora el atajo exige además que **no sobre ninguna palabra que pueda ser
+comida**: lo que sobra se mide contra el nombre y todos los alias juntos (para
+que «plancha» no cuente como alimento suelto) descontando relleno y números. Si
+sobra algo, decide el modelo — que igual recibe la lista de platillos y puede
+devolver `platilloCoincidente`, así que el resultado «es su platillo guardado»
+sigue siendo alcanzable, solo que pagando la llamada.
+
+La asimetría justifica el cambio: equivocarse hacia el modelo cuesta 15 segundos;
+equivocarse hacia el atajo inventa alimentos que el atleta no comió y borra los
+que sí.
+
 ### El bot que no conocía las recetas del plan (12 de agosto de 2026)
 
 «¿Cuál es la receta de pasta con carne molida?» contestaba con una receta

@@ -137,7 +137,8 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
   // Si el modelo dice haber reconocido un platillo guardado, se resuelve su id.
   const nombreCoincidente = parsed.estimacion.platilloCoincidente;
   const dishId = nombreCoincidente
-    ? (matchDishLocal(nombreCoincidente, input.dishes)?.dish.id ?? null)
+    ? (matchDishLocal(nombreCoincidente, input.dishes, { exigirDescripcionCompleta: false })?.dish.id ??
+      null)
     : null;
 
   return {
