@@ -4,13 +4,57 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-08-06 (ronda 4)
+**Última actualización:** 2026-08-11 (ronda 5)
+
+## Plan vigente: Bloque 2 (menú de Alma Lomeli)
+
+Desde el 2026-08-11 la base sirve el **Bloque 2**, transcrito del PDF de la
+nutrióloga y descrito en `03-PLAN-NUTRICION.md:221-307`. El Bloque 1 sigue en la
+base con `activo: false` y `vigenteHasta: 2026-08-09`; sus 22 platillos quedaron
+archivados (`archivadoEn`), no borrados: hay `MealEntry` que apuntan a ellos.
+
+```
+kcalObjetivo 2130 · P164 · C227 · G57 · fibra 29 · agua 3.0 L
+5 tiempos: desayuno 09:30 · comida 13:30 · snack pre-gym 17:00 ·
+           post-gym 19:30 (opcional, en cero) · cena 21:00
+17 platillos: 5 desayunos, 4 comidas, 4 snacks (1 archivado), 4 cenas
+```
+
+**Por qué 2,130 y no las 1,890 que declara el documento.** El PDF no trae
+desglose de macros. Sus recetas traducidas a porciones y valuadas con las tasas
+del SMAE promedian **2,131 kcal/día** (desayuno 504 · comida 662 · snack 418 ·
+cena 547, media de las opciones de cada tiempo). El propio
+`03-PLAN-NUTRICION.md` ya lo había notado: ninguna combinación da 1,890.
+
+Lo que sí coincide: **proteína (164 vs ~158) y grasa (57 vs ~54)**. Toda la
+brecha está en carbohidratos (+34 g) y en el total. Decisión de Alejandro
+(2026-08-11): se carga el promedio real. Un objetivo que el menú mismo no puede
+alcanzar dejaría la app marcando exceso todos los días aun siguiendo el plan al
+pie de la letra — exactamente lo que el §7.4 prohíbe. Las 1,890 quedan escritas
+en `NutritionPlan.notas`. **Sigue pendiente pesar un día completo** para
+verificar contra las etiquetas reales.
+
+**Comprobación de consistencia** (hecha con las tasas del SMAE sobre los
+platillos ya escritos, no a mano): la suma de los targets por slot es idéntica a
+`DAILY_TARGETS`, y `DAILY_TARGETS` cae a menos de 0.2 porciones del promedio
+real del menú en los cinco grupos. Un día seguido al pie de la letra lee
+**79-91% de adherencia**, dentro de la banda de 85-90% que persigue el §7.2.
+
+**Dos `FoodItem` nuevos**, ambos huecos reales del catálogo del §10.2: `Leche
+deslactosada light` (el grupo `leche` estaba vacío y el Bloque 2 lo usa dos
+veces) y `Jugo de naranja natural`. Tocino, aderezo ranch, miel y Protein
+Premier van como componentes genéricos (`foodItemId: null` + `notaLibre`): son
+marcas o cantidades que no existen en el SMAE, y meterlas como intercambio sería
+inventar un dato.
+
+**El snack de melón se siembra archivado.** Alejandro no come melón; mismo trato
+que pescado y salmón en §10.2 — presente en la base, ausente de la interfaz.
 
 ## Fases
 
 | Fase | Entregable | Estado |
 |---|---|---|
-| 1 | Prisma schema + seed de catálogo, platillos y plan | ✅ |
+| 1 | Prisma schema + seed de catálogo, platillos y plan | ✅ Bloque 2 desde 2026-08-11 |
 | 2 | Pantalla "Hoy" + registro por platillo guardado | ✅ |
 | 3 | Durabilidad: IndexedDB, outbox, PUT idempotentes, beacon | ✅ |
 | 4 | PWA + offline total | ✅ |
@@ -192,7 +236,44 @@ sesión las "arreglaría" de vuelta.
     Es una red de seguridad — `format=true` en `/v1/stt` ya devuelve los
     números en dígitos.
 
-12. **Sin migración para la voz.** Una nota de voz se guarda en
+12. **La adherencia se calcula por barra, no por `FoodGroup`.** El §7.2 dice
+    "por grupo" y `computeAdherencia` lo tomaba literal: clave contra clave.
+    Pero el target agregado de proteína se siembra completo contra
+    `aoa_muy_bajo` y el de grasa contra `grasa_sin_proteina`
+    (`REPRESENTATIVE_CLAVE`), así que un desayuno de huevo y panela —`aoa_bajo`—
+    no contaba contra ningún target y salía como desviación pura. Con el Bloque 2
+    un día perfecto leía **63-84%**; con el rollup a `DISPLAY_GROUPS` lee
+    **79-91%**. `computeBarras` ya sumaba así lo que se muestra: las dos mitades
+    de la pantalla estaban midiendo cosas distintas.
+
+    Un intercambio equivalente no es una desviación. Castigarlo es justo el
+    mecanismo por el que se abandona un plan (§7.4).
+
+13. **`applyDataFixups` es el canal de migración de datos, no solo de
+    correcciones.** No hay ruta HTTP que escriba catálogo ni plan, ni
+    `docker exec`, ni shell: es el único código que corre contra la base de
+    producción. `ensureBloque2` vive ahí, es idempotente (consulta antes de
+    insertar, porque ni `Dish.nombre` ni `FoodItem.nombre` tienen `@unique`) y
+    **no relanza**: `prisma/seed.ts` corre encadenado con `&&` antes de
+    `node server.js`, así que un throw dejaría la app sin arrancar y sin forma de
+    entrar a repararla. Se registra el error en los logs del deploy y se sigue.
+    El cambio de plan activo va en un `$transaction`: `NutritionPlan.activo` no es
+    único y `/api/plan` resuelve con `findFirst` sin `orderBy`, así que dos planes
+    activos harían que cuál gana fuera cuestión de suerte.
+
+14. **Las entradas de un slot que el plan vigente ya no tiene se muestran
+    aparte.** `app/hoy/page.tsx` recorre `plan.slots` y agrupa por
+    `entry.clave`: al quitar `snack_am`, los registros viejos de ese tiempo
+    desaparecían de la lista mientras seguían sumando en las barras y en los
+    macros. Una comida que cuenta pero no se ve es indistinguible de un dato
+    perdido — el mismo patrón que ya costó los registros del 3 de agosto.
+
+15. **Sin migración para el Bloque 2.** Todo es INSERT/UPDATE sobre tablas
+    existentes: los 5 tiempos caben en el enum `PlanMealSlotClave` tal cual, sin
+    `ALTER TYPE`. `snack_am` se queda en el enum aunque el plan ya no lo use,
+    justamente porque hay `MealEntry` que lo referencian.
+
+16. **Sin migración para la voz.** Una nota de voz se guarda en
     `TelegramUpdate.tipo` como `texto`. Agregar un valor `voz` al enum obligaría
     a un `ALTER TYPE`, y sin shell en el contenedor una migración que falla deja
     la app sin arrancar. Ese campo es solo diagnóstico del deduplicador.

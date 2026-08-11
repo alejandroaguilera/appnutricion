@@ -67,6 +67,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<SeedResult> {
         nombre: dish.nombre,
         alias: dish.alias ?? [],
         tipoComida: dish.tipoComida,
+        archivadoEn: dish.archivado ? archivedAt : null,
         components: {
           create: dish.componentes.map((c) => {
             const foodGroupId = groupIdByClave.get(c.foodGroupClave);
@@ -100,6 +101,7 @@ export async function seedDatabase(prisma: PrismaClient): Promise<SeedResult> {
       grasaG: ACTIVE_PLAN.grasaG,
       fibraG: ACTIVE_PLAN.fibraG,
       aguaL: ACTIVE_PLAN.aguaL,
+      notas: ACTIVE_PLAN.notas,
     },
   });
 

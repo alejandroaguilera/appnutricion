@@ -70,6 +70,9 @@ export const FOOD_ITEMS_BY_GROUP: Record<FoodGroupClave, RawFoodItem[]> = {
     { nombre: "Tuna", cantidadPorcion: "2 piezas" },
     { nombre: "Sandía", cantidadPorcion: "1 taza" },
     { nombre: "Zarzamora", cantidadPorcion: "1 taza" },
+    // Fuera del §10.2: lo pide el Desayuno 1 del Bloque 2 ("1 taza de jugo de
+    // naranja natural"). El jugo es fruta sin fibra, media taza por porción.
+    { nombre: "Jugo de naranja natural", cantidadPorcion: "1/2 taza" },
   ],
   cereal: [
     { nombre: "Amaranto tostado", cantidadPorcion: "1/4 taza" },
@@ -186,9 +189,10 @@ export const FOOD_ITEMS_BY_GROUP: Record<FoodGroupClave, RawFoodItem[]> = {
     { nombre: "Semillas de chía", cantidadPorcion: "2 cucharadas" },
     { nombre: "Chocolate amargo 80%+", cantidadPorcion: "1 cuadrito" },
   ],
-  // Sin ítems sembrados este ciclo — §10.2 no lista un catálogo propio de
-  // "Leche"; el grupo existe por completitud del modelo (§2, §7.1).
-  leche: [],
+  // §10.2 no lista catálogo propio de "Leche" — el grupo existía vacío, solo
+  // por completitud del modelo (§2, §7.1). El Bloque 2 lo usa dos veces (el
+  // licuado rápido de desayuno y el oat meal preps), así que ya tiene ítem.
+  leche: [{ nombre: "Leche deslactosada light", cantidadPorcion: "1 taza" }],
   libre: [],
 };
 

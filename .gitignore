@@ -37,3 +37,9 @@ Tokens.md
 
 # capturas de referencia y fotos de comida del atleta
 foto*.png
+
+# el plan de nutrición y el PDF de la nutrióloga: peso, % de grasa, nombre del
+# atleta y teléfono de la consulta. Son la FUENTE de lo que se siembra, no algo
+# que el repo público deba guardar — el resultado ya vive en lib/data/.
+03-PLAN-NUTRICION.md
+*.pdf

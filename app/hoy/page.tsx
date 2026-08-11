@@ -33,6 +33,9 @@ export default function HoyPage() {
     porSlot.set(m.entry.clave, [...(porSlot.get(m.entry.clave) ?? []), m]);
   }
 
+  const clavesDelPlan = new Set<string>(plan?.slots.map((s) => s.clave) ?? []);
+  const huerfanas = [...porSlot].filter(([clave]) => !clavesDelPlan.has(clave));
+
   return (
     <Screen>
       <DayHeader fecha={fecha} macros={macros} nEntradas={meals.length} />
@@ -72,6 +75,25 @@ export default function HoyPage() {
             </div>
           );
         })}
+
+        {/* Entradas cuyo tiempo de comida ya no existe en el plan vigente: el
+            Bloque 2 quitó `snack_am`, y sin esto un registro viejo de ese slot
+            desaparecía de la lista mientras seguía sumando en las barras y en
+            los macros. Una comida que cuenta pero no se ve es indistinguible
+            de un dato perdido. */}
+        {huerfanas.map(([clave, delSlot]) => (
+          <div key={clave}>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
+              {clave.replace(/_/g, " ")}
+              <span className="normal-case font-normal"> · fuera del plan vigente</span>
+            </h2>
+            <ul className="mt-1">
+              {delSlot.map(({ entry, portions }) => (
+                <MealRow key={entry.id} entry={entry} portions={portions} slotNombre={clave} />
+              ))}
+            </ul>
+          </div>
+        ))}
       </section>
 
       {/* Verificación contra el plan: el plan se ejecuta en porciones (§3.1). */}
