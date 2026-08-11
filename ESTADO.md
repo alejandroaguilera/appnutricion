@@ -50,6 +50,12 @@ inventar un dato.
 **El snack de melón se siembra archivado.** Alejandro no come melón; mismo trato
 que pescado y salmón en §10.2 — presente en la base, ausente de la interfaz.
 
+**`/snack` en Telegram apuntaba a `snack_am`**, que el Bloque 2 quitó.
+`registro.ts` resuelve el slot con `findFirst({ clave, plan: { activo: true } })`,
+así que devolvía null: la entrada se guardaba sin `planMealSlotId` y con la
+clave cruda de nombre. Ahora apunta a `snack_pm`, el único tiempo de snack del
+plan. Si un bloque futuro vuelve a tener dos, hay que desambiguar por hora.
+
 ## Fases
 
 | Fase | Entregable | Estado |

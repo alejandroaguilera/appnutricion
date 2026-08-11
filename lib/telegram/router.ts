@@ -41,11 +41,17 @@ function pareceConsulta(texto: string): boolean {
   return ARRANQUE_PREGUNTA.test(t);
 }
 
+// `/snack` apunta al único tiempo de snack del plan vigente. El Bloque 2 quitó
+// `snack_am`, y `registro.ts` resuelve el slot con
+// `findFirst({ clave, plan: { activo: true } })`: una clave que el plan no
+// tiene devuelve null, así que la entrada se guardaba sin `planMealSlotId` y
+// con la clave cruda de nombre. Si algún bloque futuro vuelve a tener dos
+// snacks, esto necesita desambiguar por hora, no volver a `snack_am`.
 const SLOT_POR_COMANDO: Record<string, PlanMealSlotClave> = {
   desayuno: "desayuno",
   comida: "comida",
   cena: "cena",
-  snack: "snack_am",
+  snack: "snack_pm",
   postgym: "post_gym",
 };
 
