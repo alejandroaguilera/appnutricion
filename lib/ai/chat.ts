@@ -155,7 +155,11 @@ export async function responderPregunta(args: {
     temperatura: 0.6,
     // Mirar una foto se lleva tokens de razonamiento que salen del mismo tope
     // que la respuesta; con 600 la contestación sobre una imagen se corta.
-    maxTokens: args.imagen ? 1200 : 600,
+    // Se subieron los dos al meterle el plan y las recetas al contexto: hay más
+    // material sobre el que razonar y las respuestas citan cantidades. Un tope
+    // corto sale como `truncado` → 503 → "no pude contestar", que es el modo de
+    // fallo más caro de diagnosticar sin logs del contenedor.
+    maxTokens: args.imagen ? 2000 : 1200,
   });
 
   const texto = res.contenido.trim();
