@@ -4,7 +4,7 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-08-12 (ronda 6)
+**Última actualización:** 2026-09-01 (ronda 7)
 
 ## Plan vigente: Bloque 2 (menú de Alma Lomeli)
 
@@ -77,6 +77,14 @@ plan. Si un bloque futuro vuelve a tener dos, hay que desambiguar por hora.
 Fuera de la tabla del §9, también construido: esqueleto de navegación por pestañas,
 pantalla de editar/borrar comida, almacenamiento de fotos, y un programador en
 proceso (no hay cron en el contenedor).
+
+**La foto de la entrada libre tiene dos botones** (2026-09-01): cámara y galería.
+El input llevaba `capture="environment"`, que abre la cámara directo y no deja
+llegar al carrete — no había forma de subir una foto ya tomada. Un solo input sin
+`capture` no sirve: iOS muestra un menú con las dos opciones pero Android suele ir
+directo a la galería. Dos inputs ocultos y un botón para cada intención es lo
+único que se comporta igual en los dos. Los dos se limpian (`value = ""`) después
+de elegir, o volver a escoger el mismo archivo no dispara `change`.
 
 ## Credenciales
 
