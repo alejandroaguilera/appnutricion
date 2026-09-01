@@ -42,7 +42,19 @@ export async function registerMeal(params: {
   fotoPrincipalId?: string | null;
   portionsInput: RegisterPortionInput[];
   origen?: "app" | "telegram" | "import";
-}): Promise<DayLogRecord> {
+  /**
+   * Entrada que ya existe y hay que sobrescribir en vez de crear otra.
+   *
+   * Es lo que permite reservar el registro ANTES de llamar al modelo: la
+   * comida se guarda `pendiente` en cuanto el atleta pulsa estimar, y cuando
+   * la estimación vuelve se completa ESTA misma entrada. Sin esto, confirmar
+   * dejaba dos comidas donde hubo una.
+   *
+   * Se sube `version` y se refresca `actualizadoEn`, que es la base de la
+   * resolución de conflictos del §5.4.5.
+   */
+  existente?: MealEntryRecord | null;
+}): Promise<{ dayLog: DayLogRecord; entry: MealEntryRecord }> {
   const {
     fecha,
     slot,
@@ -57,6 +69,7 @@ export async function registerMeal(params: {
     fotoPrincipalId = null,
     portionsInput,
     origen = "app",
+    existente = null,
   } = params;
 
   const dayLog = await ensureDayLog(fecha);
@@ -84,29 +97,38 @@ export async function registerMeal(params: {
     });
 
   const ahora = new Date();
-  const entry: MealEntryRecord = {
-    id: crypto.randomUUID(),
-    dayLogId: dayLog.id,
-    planMealSlotId: slot.id,
-    clave: slot.clave,
-    horaRegistro: ahora,
+  const base = {
     dishId,
     titulo,
     textoLibre,
     fueraDeCasa,
     notas,
-    version: 1,
     origen,
     estadoClasificacion,
     confianzaIa,
     fotoPrincipalId,
-    archivadoEn: null,
     actualizadoEn: ahora,
   };
+
+  const entry: MealEntryRecord = existente
+    ? // La hora de registro NO se toca: es cuándo comió, no cuándo se terminó
+      // de clasificar. Reescribirla movería la comida de lugar en el día cada
+      // vez que el modelo tarda.
+      { ...existente, ...base, version: existente.version + 1 }
+    : {
+        id: crypto.randomUUID(),
+        dayLogId: dayLog.id,
+        planMealSlotId: slot.id,
+        clave: slot.clave,
+        horaRegistro: ahora,
+        version: 1,
+        archivadoEn: null,
+        ...base,
+      };
 
   const portionsWithEntryId = portions.map((p) => ({ ...p, mealEntryId: entry.id }));
 
   await saveMealEntry(entry, portionsWithEntryId, fecha);
 
-  return dayLog;
+  return { dayLog, entry };
 }

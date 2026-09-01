@@ -63,12 +63,34 @@ export async function makeThumbnail(file: Blob, lado = 128): Promise<Blob> {
   return aBlob(canvas, 0.7);
 }
 
+export interface FotoSubida {
+  id: string | null;
+  /**
+   * La versión reducida, para que la vista previa la use en vez del archivo
+   * original. Una foto de 12 MP ocupa decenas de MB una vez descodificada en
+   * un `<img>`, y esa memoria se retiene TODO lo que dura la estimación: en
+   * iOS es motivo suficiente para que el sistema descarte la pestaña y la
+   * recargue, que se ve como "se refrescó sola y perdí lo que llevaba".
+   */
+  blob: Blob | null;
+}
+
 // Sube la foto ANTES de que exista la comida y de forma independiente: si la
 // estimación falla, la foto ya está a salvo y la entrada se puede guardar
 // como `pendiente` sin perder la evidencia.
-export async function subirFoto(file: Blob): Promise<string | null> {
+export async function subirFoto(file: Blob): Promise<FotoSubida> {
+  let blob: Blob;
+  let ancho: number;
+  let alto: number;
   try {
-    const { blob, ancho, alto } = await downscaleImage(file);
+    ({ blob, ancho, alto } = await downscaleImage(file));
+  } catch {
+    // Un formato que el navegador no sabe descodificar (HEIC en algunos
+    // Android, por ejemplo) no deja ni vista previa ni subida.
+    return { id: null, blob: null };
+  }
+
+  try {
     const id = crypto.randomUUID();
     const res = await fetch(`/api/photos/${id}`, {
       method: "PUT",
@@ -79,8 +101,10 @@ export async function subirFoto(file: Blob): Promise<string | null> {
       },
       body: blob,
     });
-    return res.ok ? id : null;
+    // La reducida se devuelve aunque la subida falle: sirve igual de vista
+    // previa mientras el atleta decide si describe la comida con palabras.
+    return { id: res.ok ? id : null, blob };
   } catch {
-    return null;
+    return { id: null, blob };
   }
 }

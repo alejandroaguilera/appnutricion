@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Camera, ImagePlus, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { subirFoto } from "@/lib/media/downscale";
+import { leerEventos } from "@/lib/http/sse";
 import type { Estimacion } from "@/lib/ai/schema";
 
 const CLAVE_FOTOS = "appnutricion:fotosHabilitadas";
@@ -24,10 +25,18 @@ export interface ResultadoEstimacion {
 // alimentos comerciales, que es justo lo que este producto no quiere ser.
 export function EntradaLibre({
   slotNombre,
+  onReservar,
   onEstimacion,
   onSinIa,
 }: {
   slotNombre: string;
+  /**
+   * Se llama justo ANTES de pedir la estimación y tiene que haber dejado la
+   * comida guardada cuando resuelve. Es lo único que sobrevive a que esta
+   * pantalla desaparezca a media espera — y desaparecer a media espera es
+   * exactamente lo que hace un móvil con una pestaña en segundo plano.
+   */
+  onReservar: (texto: string, fotoId: string | null) => Promise<void>;
   onEstimacion: (r: ResultadoEstimacion) => void;
   onSinIa: (texto: string, fotoId: string | null, motivo: string | null) => void;
 }) {
@@ -36,23 +45,44 @@ export function EntradaLibre({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<"foto" | "estimando" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [razonamiento, setRazonamiento] = useState("");
+  const [segundos, setSegundos] = useState(0);
   const inputCamara = useRef<HTMLInputElement>(null);
   const inputGaleria = useRef<HTMLInputElement>(null);
 
   const fotosHabilitadas =
     typeof window === "undefined" || localStorage.getItem(CLAVE_FOTOS) !== "0";
 
+  // Un contador que avanza es la señal más barata de "sigo trabajando", y la
+  // única que sirve durante los segundos que el modelo tarda en soltar su
+  // primer token de razonamiento.
+  useEffect(() => {
+    if (ocupado !== "estimando") return;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [ocupado]);
+
   const elegirFoto = async (file: File) => {
     setOcupado("foto");
     setError(null);
-    setPreviewUrl((anterior) => {
-      if (anterior) URL.revokeObjectURL(anterior);
-      return URL.createObjectURL(file);
-    });
     try {
-      const id = await subirFoto(file);
-      if (!id) setError("No se pudo subir la foto. Puedes describirla con palabras.");
+      const { id, blob } = await subirFoto(file);
+      if (!id) {
+        setError(
+          blob
+            ? "No se pudo subir la foto. Puedes describirla con palabras."
+            : "No pude leer esa imagen. Prueba con otra o descríbela con palabras."
+        );
+      }
       setFotoId(id);
+      // La vista previa sale de la versión reducida, no del archivo original:
+      // ver `FotoSubida.blob`.
+      if (blob) {
+        setPreviewUrl((anterior) => {
+          if (anterior) URL.revokeObjectURL(anterior);
+          return URL.createObjectURL(blob);
+        });
+      }
     } finally {
       setOcupado(null);
     }
@@ -76,44 +106,74 @@ export function EntradaLibre({
 
   const estimar = async () => {
     if (!texto.trim() && !fotoId) return;
+    const limpio = texto.trim();
+
     setOcupado("estimando");
     setError(null);
+    setRazonamiento("");
+    setSegundos(0);
+
+    // Primero se guarda, después se pregunta. Si algo mata esta pantalla
+    // mientras el modelo piensa —la pestaña descartada, la app en segundo
+    // plano, un despliegue— la comida ya está en el registro como
+    // `pendiente` con su texto y su foto (§3.2-D). Antes vivía solo en el
+    // estado de React y se perdía entera y en silencio.
     try {
-      const res = await fetch("/api/estimate", {
+      await onReservar(limpio, fotoId);
+    } catch {
+      setOcupado(null);
+      setError("No se pudo guardar el registro. Inténtalo otra vez.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/estimate/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texto: texto.trim() || null, fotoId, slotNombre }),
+        body: JSON.stringify({ texto: limpio || null, fotoId, slotNombre }),
       });
 
-      if (res.status === 503) {
-        // La IA no está disponible: no se pierde el registro. Se guarda como
-        // pendiente con el texto y la foto intactos y se reclasifica después
-        // (§3.2-D). Nunca se descarta.
-        //
-        // El motivo se avisa antes de guardar: sin él, la comida aparecía en
-        // Hoy con 0 kcal y nada explicaba por qué — indistinguible de un bug.
-        // Telegram ya decía la causa desde la ronda anterior.
-        const motivo = (await res.json().catch(() => null))?.motivo as string | undefined;
-        onSinIa(texto.trim(), fotoId, motivo ?? null);
-        return;
-      }
-      if (!res.ok) {
+      // Los errores con un código honesto (payload inválido, foto que ya no
+      // está) llegan como JSON antes de que se abra el stream.
+      if (!res.ok || !res.body) {
+        setOcupado(null);
         setError("No se pudo estimar. Inténtalo otra vez o ajusta las porciones a mano.");
         return;
       }
 
-      const data = await res.json();
-      onEstimacion({
-        estimacion: data.estimacion,
-        dishId: data.dishId,
-        fuente: data.fuente,
-        crudo: data.crudo,
-        modelo: data.modelo,
-        fotoId,
-        texto: texto.trim(),
-      });
+      let resuelto = false;
+
+      for await (const evento of leerEventos(res.body)) {
+        if (evento.tipo === "razon") {
+          const { texto: trozo } = evento.datos as { texto: string };
+          setRazonamiento((r) => r + trozo);
+        } else if (evento.tipo === "fase") {
+          const { fase } = evento.datos as { fase: string };
+          if (fase === "reparando") setRazonamiento((r) => r + "\n\n(reintentando la respuesta…)\n");
+        } else if (evento.tipo === "listo") {
+          const d = evento.datos as Omit<ResultadoEstimacion, "fotoId" | "texto">;
+          resuelto = true;
+          onEstimacion({ ...d, fotoId, texto: limpio });
+          return;
+        } else if (evento.tipo === "sin_ia") {
+          // La IA no está disponible. El registro ya existe desde `onReservar`;
+          // esto solo le pone la causa para que no aparezca en Hoy con 0 kcal
+          // y sin explicación.
+          const { motivo } = evento.datos as { motivo?: string };
+          resuelto = true;
+          onSinIa(limpio, fotoId, motivo ?? null);
+          return;
+        } else if (evento.tipo === "falla") {
+          resuelto = true;
+          onSinIa(limpio, fotoId, "hubo un error al estimar");
+          return;
+        }
+      }
+
+      // El stream terminó sin decir en qué acabó: la conexión se cortó.
+      if (!resuelto) onSinIa(limpio, fotoId, "se cortó la conexión al estimar");
     } catch {
-      onSinIa(texto.trim(), fotoId, "no pude conectarme al modelo");
+      onSinIa(limpio, fotoId, "no pude conectarme al modelo");
     } finally {
       setOcupado(null);
     }
@@ -206,13 +266,40 @@ export function EntradaLibre({
         </Button>
       </div>
 
-      {/* grok-4.5 razona antes de responder: 12-20 s es lo normal. Sin decirlo,
-          la espera se siente como que la app se colgó. */}
-      {ocupado === "estimando" && (
-        <p className="text-center text-xs text-muted">
-          Puede tardar unos segundos{fotoId ? ". La foto ya está guardada" : ""}.
-        </p>
-      )}
+      {ocupado === "estimando" && <Razonando texto={razonamiento} segundos={segundos} />}
     </section>
+  );
+}
+
+// El razonamiento del modelo, tal cual sale. No es decoración: 20-60 s de
+// botón inerte se leen como una app colgada, y ver lo que está pensando es
+// además la forma más directa de entender por qué estimó lo que estimó.
+function Razonando({ texto, segundos }: { texto: string; segundos: number }) {
+  const caja = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Pegado al final: lo último que escribió es lo que interesa.
+    if (caja.current) caja.current.scrollTop = caja.current.scrollHeight;
+  }, [texto]);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="flex items-center justify-between text-xs text-muted">
+        <span>
+          {texto ? "Pensando…" : "Mirando la comida…"} {segundos}s
+        </span>
+        <span>El registro ya está guardado</span>
+      </p>
+
+      {texto && (
+        <div
+          ref={caja}
+          aria-live="polite"
+          className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface p-2.5 text-[11px] leading-relaxed text-muted"
+        >
+          {texto}
+        </div>
+      )}
+    </div>
   );
 }

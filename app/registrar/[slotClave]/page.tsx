@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useHoyData } from "@/lib/hooks/useHoyData";
 import { registerMeal } from "@/lib/logic/registerMeal";
+import { deleteMealEntry } from "@/lib/db/mealEntries";
 import { getCachedDishes } from "@/lib/db/catalogSync";
 import { SLOT_TO_TIPO_COMIDA } from "@/lib/data/plan";
 import { triggerFlush } from "@/lib/sync/flush";
@@ -15,7 +15,7 @@ import { PorcionesSueltasGrid } from "@/components/registrar/PorcionesSueltasGri
 import { EntradaLibre, type ResultadoEstimacion } from "@/components/registrar/EntradaLibre";
 import { ConfirmarEstimacion, type PorcionConfirmada } from "@/components/registrar/ConfirmarEstimacion";
 import type { FoundMeal } from "@/lib/logic/repeatMeal";
-import type { DishRecord } from "@/lib/db/types";
+import type { DishRecord, MealEntryRecord } from "@/lib/db/types";
 
 export default function RegistrarSlotPage() {
   const params = useParams<{ slotClave: string }>();
@@ -24,6 +24,9 @@ export default function RegistrarSlotPage() {
   const [dishes, setDishes] = useState<DishRecord[]>([]);
   const [estimacion, setEstimacion] = useState<ResultadoEstimacion | null>(null);
   const [manual, setManual] = useState(false);
+  // La comida que ya se guardó `pendiente` mientras el modelo piensa. Existe
+  // desde que se pulsa Estimar, y confirmar la completa en vez de crear otra.
+  const [reserva, setReserva] = useState<MealEntryRecord | null>(null);
 
   useEffect(() => {
     void getCachedDishes().then(setDishes);
@@ -56,6 +59,35 @@ export default function RegistrarSlotPage() {
 
   const registrar = async (extra: Parameters<typeof registerMeal>[0]) => {
     await registerMeal(extra);
+    terminar();
+  };
+
+  // Se guarda ANTES de llamar al modelo (§3.2-D). Una estimación con foto
+  // tarda 20-60 s, y durante esos segundos el móvil puede descartar la
+  // pestaña, quedarse sin red o recibir un despliegue nuevo: si el registro
+  // vive solo en el estado de React, se pierde entero y sin rastro. Guardado
+  // como `pendiente`, lo peor que pasa es que aparezca en Hoy sin clasificar.
+  const handleReservar = async (texto: string, fotoId: string | null) => {
+    const { entry } = await registerMeal({
+      fecha,
+      slot,
+      foodGroups,
+      // Reusar la reserva anterior es lo que impide que volver a estimar
+      // —tras cancelar la confirmación— deje dos comidas donde hubo una.
+      existente: reserva,
+      titulo: texto.slice(0, 60) || slot.nombre,
+      textoLibre: texto || null,
+      fotoPrincipalId: fotoId,
+      estadoClasificacion: "pendiente",
+      portionsInput: [],
+    });
+    setReserva(entry);
+  };
+
+  // Salir a mano sí descarta la reserva: la única forma de perder un registro
+  // debe ser pedirlo. Borrado lógico (§5.4.4), como cualquier otro.
+  const cancelar = async () => {
+    if (reserva) await deleteMealEntry(reserva, fecha);
     terminar();
   };
 
@@ -108,11 +140,16 @@ export default function RegistrarSlotPage() {
       fecha,
       slot,
       foodGroups,
+      existente: reserva,
       dishId: r.dishId,
       titulo: titulo || null,
       textoLibre: r.texto || null,
       confianzaIa: r.estimacion.confianza,
       fotoPrincipalId: r.fotoId,
+      // Deja de estar pendiente y se lleva consigo la nota de por qué lo
+      // estaba: ya está clasificada.
+      estadoClasificacion: "clasificado",
+      notas: null,
       portionsInput: porciones,
     });
   };
@@ -125,6 +162,9 @@ export default function RegistrarSlotPage() {
       fecha,
       slot,
       foodGroups,
+      // La entrada ya existe desde `handleReservar`: esto solo le añade la
+      // causa. Sin `existente` se duplicaría la comida.
+      existente: reserva,
       titulo: texto.slice(0, 60) || slot.nombre,
       textoLibre: texto || null,
       fotoPrincipalId: fotoId,
@@ -163,13 +203,22 @@ export default function RegistrarSlotPage() {
           <h1 className="text-lg font-semibold text-foreground">{slot.nombre}</h1>
           <p className="text-xs text-muted">{slot.horaSugerida}</p>
         </div>
-        <Link href="/hoy" className="text-sm text-muted underline underline-offset-4">
+        <button
+          type="button"
+          onClick={() => void cancelar()}
+          className="text-sm text-muted underline underline-offset-4"
+        >
           Cancelar
-        </Link>
+        </button>
       </header>
 
       {/* Primero lo que cubre cualquier comida, esté o no en el plan. */}
-      <EntradaLibre slotNombre={slot.nombre} onEstimacion={setEstimacion} onSinIa={handleSinIa} />
+      <EntradaLibre
+        slotNombre={slot.nombre}
+        onReservar={handleReservar}
+        onEstimacion={setEstimacion}
+        onSinIa={handleSinIa}
+      />
 
       <RepeatButtons fecha={fecha} clave={slot.clave} onRepeat={(found) => void handleRepeat(found)} />
 

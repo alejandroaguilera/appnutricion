@@ -4,12 +4,21 @@ import { parseEstimacion, type Estimacion } from "./schema";
 import { matchDishLocal, type DishMatchContext } from "./localMatch";
 import { logEvent } from "@/lib/log";
 
+// Lo que se puede contar mientras se estima. El razonamiento llega crudo, tal
+// cual lo emite el modelo: no se resume ni se maquilla — si se va a enseñar,
+// que sea lo que de verdad está pensando.
+export type ProgresoEstimacion =
+  | { tipo: "fase"; fase: "modelo" | "reparando" }
+  | { tipo: "razon"; texto: string };
+
 export interface EstimateInput {
   texto?: string | null;
   imagen?: { base64: string; mime: string } | null;
   slotNombre?: string | null;
   horaLocal?: string | null;
   dishes: DishMatchContext[]; // los 20 más usados
+  /** Si viene, la llamada al modelo va en streaming y se reporta el avance. */
+  onProgreso?: (p: ProgresoEstimacion) => void;
 }
 
 export interface EstimateResult {
@@ -93,7 +102,14 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
   // y el registro cae a `pendiente` con 0 kcal, indistinguible de un bug.
   const maxTokens = input.imagen ? 2500 : 1500;
 
-  const res = await xaiChat({ modelo, system: SYSTEM_ESTIMACION, user: contenido, maxTokens });
+  input.onProgreso?.({ tipo: "fase", fase: "modelo" });
+  const onDelta = input.onProgreso
+    ? (d: { razonamiento?: string }) => {
+        if (d.razonamiento) input.onProgreso?.({ tipo: "razon", texto: d.razonamiento });
+      }
+    : undefined;
+
+  const res = await xaiChat({ modelo, system: SYSTEM_ESTIMACION, user: contenido, maxTokens, onDelta });
 
   let parsed = parseEstimacion(res.contenido);
 
@@ -105,6 +121,7 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
   // a gastar el mismo presupuesto de razonamiento que acaba de agotarse.
   if (!parsed.ok) {
     logEvent("ia_reparando_json", { issues: parsed.issues, conFoto: Boolean(input.imagen) });
+    input.onProgreso?.({ tipo: "fase", fase: "reparando" });
     const soloTexto = contenido.filter((c) => c.type === "text");
     const reintento = await xaiChat({
       modelo,
@@ -119,6 +136,7 @@ export async function estimatePortions(input: EstimateInput): Promise<EstimateRe
         },
       ],
       maxTokens,
+      onDelta,
     });
     parsed = parseEstimacion(reintento.contenido);
     if (!parsed.ok) throw new AiUnavailableError("parseo", parsed.issues);

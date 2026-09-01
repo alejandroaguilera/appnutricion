@@ -78,6 +78,11 @@ Fuera de la tabla del §9, también construido: esqueleto de navegación por pes
 pantalla de editar/borrar comida, almacenamiento de fotos, y un programador en
 proceso (no hay cron en el contenedor).
 
+**La estimación por IA se reserva antes de llamarla y va en streaming**
+(2026-09-01): el registro se guarda `pendiente` al pulsar Estimar y el
+razonamiento del modelo se enseña mientras ocurre. Por qué, en "Historia que
+conviene no repetir".
+
 **La foto de la entrada libre tiene dos botones** (2026-09-01): cámara y galería.
 El input llevaba `capture="environment"`, que abre la cámara directo y no deja
 llegar al carrete — no había forma de subir una foto ya tomada. Un solo input sin
@@ -338,6 +343,47 @@ sesión las "arreglaría" de vuelta.
 - La verificación real es `curl` contra la URL en vivo. No hay runtime local.
 
 ## Historia que conviene no repetir
+
+### La comida que se perdía mientras el modelo pensaba (1 de septiembre de 2026)
+
+Síntoma: subir foto, describirla, pulsar Estimar, ver "puede tardar unos
+segundos… la foto ya está guardada" y al rato "como si se refrescara la
+página". Ni estimación, ni registro, ni aviso. Nada.
+
+**El backend estaba sano.** Reproducido contra la URL en vivo con la misma
+foto reducida: `POST /api/estimate` devuelve 200 en 22.4 s, con la imagen
+efectivamente enviada (`image_tokens: 898`). El fallo era del cliente.
+
+**Todo el registro vivía en el estado de React hasta que volvía la
+estimación.** La foto sí se subía —por eso el mensaje decía la verdad— pero
+el texto, el slot y la intención de registrar solo existían en memoria. Si
+la pantalla moría durante los 20-60 s de espera, moría con ella la petición
+en vuelo; y como el contexto de JS desaparece, **ni siquiera corría el
+`catch` que guarda el registro como `pendiente`**. El §3.2-D estaba
+implementado solo para el fallo que devuelve 503, que es el único que deja
+vivo a quien tiene que reaccionar.
+
+Qué mata una pestaña móvil a media espera: el sistema descartándola en
+segundo plano, la presión de memoria (la vista previa retenía el archivo
+ORIGINAL, y una foto de 12 MP son decenas de MB descodificados), o un
+despliegue nuevo — el contenedor se había reemplazado nueve minutos antes.
+
+Tres arreglos, y el primero es el que importa:
+
+1. **Se reserva el registro antes de llamar al modelo.** Al pulsar Estimar
+   se guarda ya la comida como `pendiente` con su texto y su foto.
+   Confirmar la completa (`registerMeal({existente})`, que sube `version` y
+   respeta la resolución de conflictos del §5.4.5) en vez de crear otra.
+   Ahora la única forma de perder un registro es pedirlo: "Cancelar" lo
+   archiva (borrado lógico), nada más lo borra.
+2. **La estimación va en streaming** (`POST /api/estimate/stream`, SSE). El
+   razonamiento del modelo se enseña según se produce. Además de quitar el
+   silencio, quita el silencio *de la conexión*: medio minuto sin un byte es
+   indistinguible de una petición colgada para el proxy y para el navegador.
+   El plazo de xAI pasó a ser de INACTIVIDAD (se rearma con cada trozo), así
+   que un modelo que sigue escribiendo ya no se aborta por tardar.
+3. **La vista previa usa la imagen reducida**, no el archivo original.
+
 
 ### El respaldo que existía tres veces y faltaba en la cuarta (12 de agosto de 2026)
 
