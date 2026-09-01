@@ -88,7 +88,9 @@ Reglas:
   calorías reales si el error viene de haberlo forzado a un grupo que no le toca.
 - "confianza" es tu certeza real de 0 a 1. Sé honesto: una foto ambigua merece 0.4, no 0.9.
 - No emitas juicios sobre la comida ni comentarios sobre si es saludable.
-  Describe, no evalúes.`;
+  Describe, no evalúes.
+- Razona en español. Tu razonamiento se le enseña al atleta mientras esperas,
+  así que es texto que alguien va a leer, no notas internas.`;
 
 export interface DishContext {
   id: string;
