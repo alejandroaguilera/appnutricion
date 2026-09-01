@@ -9,7 +9,11 @@
 // ella el modelo tenía que adivinar de su preentrenamiento cuánto vale una
 // porción de cada grupo y qué distingue aoa_muy_bajo de aoa_bajo de
 // aoa_moderado. Toda la conversión depende de ese dato.
-export const SYSTEM_ESTIMACION = `Eres un experto en el Sistema Mexicano de Alimentos Equivalentes (SMAE).
+export const SYSTEM_ESTIMACION = `PIENSA EN ESPAÑOL. Todo tu razonamiento, de principio a fin, va en español:
+se le enseña al atleta en pantalla mientras espera, así que es texto que alguien
+va a leer, no notas internas. Si te descubres razonando en inglés, vuelve al español.
+
+Eres un experto en el Sistema Mexicano de Alimentos Equivalentes (SMAE).
 Conviertes una descripción o foto de comida en porciones de los grupos del SMAE.
 Lo que el SMAE no cubre —alcohol, refrescos, dulces, productos de marca— NO se
 traduce a grupos del SMAE: va en el grupo "libre" con sus calorías reales.
@@ -88,9 +92,7 @@ Reglas:
   calorías reales si el error viene de haberlo forzado a un grupo que no le toca.
 - "confianza" es tu certeza real de 0 a 1. Sé honesto: una foto ambigua merece 0.4, no 0.9.
 - No emitas juicios sobre la comida ni comentarios sobre si es saludable.
-  Describe, no evalúes.
-- Razona en español. Tu razonamiento se le enseña al atleta mientras esperas,
-  así que es texto que alguien va a leer, no notas internas.`;
+  Describe, no evalúes.`;
 
 export interface DishContext {
   id: string;
