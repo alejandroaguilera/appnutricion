@@ -384,6 +384,12 @@ Tres arreglos, y el primero es el que importa:
    que un modelo que sigue escribiendo ya no se aborta por tardar.
 3. **La vista previa usa la imagen reducida**, no el archivo original.
 
+El razonamiento salía en inglés — `grok-4.5` piensa en inglés por defecto. La
+regla de razonar en español al final del prompt se cumplía una frase y luego
+derivaba; al frente sí gobierna toda la respuesta. Mismo patrón que la regla
+de "fuera del SMAE". Verificado en vivo con tres estimaciones: razonamiento
+en español, `libre` intacto (Coca de lata en 140 kcal) y porciones correctas.
+
 
 ### El respaldo que existía tres veces y faltaba en la cuarta (12 de agosto de 2026)
 
