@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Camera, Sparkles, X } from "lucide-react";
+import { useRef, useState, type ChangeEvent } from "react";
+import { Camera, ImagePlus, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { subirFoto } from "@/lib/media/downscale";
 import type { Estimacion } from "@/lib/ai/schema";
@@ -36,7 +36,8 @@ export function EntradaLibre({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<"foto" | "estimando" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const inputFile = useRef<HTMLInputElement>(null);
+  const inputCamara = useRef<HTMLInputElement>(null);
+  const inputGaleria = useRef<HTMLInputElement>(null);
 
   const fotosHabilitadas =
     typeof window === "undefined" || localStorage.getItem(CLAVE_FOTOS) !== "0";
@@ -44,7 +45,10 @@ export function EntradaLibre({
   const elegirFoto = async (file: File) => {
     setOcupado("foto");
     setError(null);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl((anterior) => {
+      if (anterior) URL.revokeObjectURL(anterior);
+      return URL.createObjectURL(file);
+    });
     try {
       const id = await subirFoto(file);
       if (!id) setError("No se pudo subir la foto. Puedes describirla con palabras.");
@@ -54,10 +58,20 @@ export function EntradaLibre({
     }
   };
 
+  // Los dos inputs se limpian al terminar: sin esto, volver a elegir el mismo
+  // archivo no dispara `change` (el value no cambió) y el botón se siente muerto.
+  const alElegir = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (f) void elegirFoto(f);
+  };
+
   const quitarFoto = () => {
     setFotoId(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
+    if (inputCamara.current) inputCamara.current.value = "";
+    if (inputGaleria.current) inputGaleria.current.value = "";
   };
 
   const estimar = async () => {
@@ -135,26 +149,44 @@ export function EntradaLibre({
       <div className="flex gap-2">
         {fotosHabilitadas && (
           <>
+            {/* Dos inputs, no uno: `capture` abre la cámara directo y no deja
+                llegar al carrete, y sin `capture` Android suele ir directo a la
+                galería. Un botón para cada intención es lo único que se comporta
+                igual en iOS y en Android. */}
             <input
-              ref={inputFile}
+              ref={inputCamara}
               type="file"
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void elegirFoto(f);
-              }}
+              onChange={alElegir}
+            />
+            <input
+              ref={inputGaleria}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={alElegir}
             />
             <Button
               variant="secondary"
               size="lg"
               className="shrink-0"
               disabled={ocupado !== null}
-              onClick={() => inputFile.current?.click()}
+              onClick={() => inputCamara.current?.click()}
               aria-label="Tomar foto"
             >
               <Camera />
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="shrink-0"
+              disabled={ocupado !== null}
+              onClick={() => inputGaleria.current?.click()}
+              aria-label="Elegir foto de la galería"
+            >
+              <ImagePlus />
             </Button>
           </>
         )}
