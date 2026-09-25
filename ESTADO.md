@@ -4,9 +4,81 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-09-01 (ronda 7)
+**Última actualización:** 2026-09-26 (ronda 8)
 
-## Plan vigente: Bloque 2 (menú de Alma Lomeli)
+## Plan vigente: Bloque 3 (plan 02 de Alma Lomeli)
+
+Desde el 2026-09-26, encargado en `ENCARGO-VPS-plan-alma-02-y-omron.md`
+(fuera del repo: trae datos de salud). Datos en `lib/data/bloque3.ts`, lo
+siembra `ensureBloque3` en `lib/services/dataFixups.ts`. El Bloque 2 quedó con
+`activo: false` y `vigenteHasta: 2026-09-25`; sus platillos archivados, no
+borrados.
+
+```
+kcalObjetivo 1475 · P133 · C142 · G37 · fibra 29 (copiada del Bloque 2) · agua 3.0 L
+metas/día: proteína 15 · cereal 6 · grasa 2.5 · fruta 1 · verdura 4 (piso) · leguminosa 1
+5 tiempos: desayuno · comida · snack (snack_pm, renombrado) · post-gym (opcional,
+           sin metas) · cena — horas copiadas del Bloque 2
+17 platillos activos: 4 por tiempo + "Batido de proteína post-gym"
+```
+
+**Por qué 1,475 y no las 1,990 que declara el PDF.** Mismo criterio que el
+Bloque 2: se carga lo que suma el menú. Verificado con las tasas de
+`FOOD_GROUPS` sobre los platillos ya escritos: el promedio es **1,474 kcal/día**
+(desayuno 408 · comida 542 · snack 151 · cena 374), la suma de las metas por
+tiempo es idéntica a las metas diarias, y los cuatro días completos (misma
+opción en los cuatro tiempos) dan 1,478 / 1,605 / 1,303 / 1,510 kcal y leen
+**81-87 % de adherencia**. Si Alma aclara que falta un "Snack 2", va en otro
+fixup que agregue el slot y suba las metas.
+
+**Salmón → Bowl de atún**, con `"bowl de salmón"` como alias: el atajo local lo
+resuelve sin llamar al modelo (comprobado con `matchDishLocal`). Los límites de
+frecuencia (bistec y picadillo 1/semana, barrita 2/semana) viven en
+`Dish.descripcion` y en `NutritionPlan.notas`; no hay validación de frecuencia.
+`/chat` ahora recibe `plan.notas` en su contexto, así que puede contestar
+"¿puedo comer bistec hoy?".
+
+**Componentes enlazados al catálogo** cuando hay un `FoodItem` que les
+corresponde (la cantidad del menú va en `notaLibre`); genéricos para lo que no
+existe en el SMAE: hotcakes Kodiak, chips de verdura, barritas y las mezclas de
+verduras libres.
+
+**Desviaciones del encargo** (manda el código):
+
+- **Platillos fuera de la transacción.** El encargo pone todo en un
+  `$transaction` con early-return si el plan existe. Aquí el plan, sus metas,
+  sus slots y el cambio de activo sí van en una transacción (un plan a medio
+  crear sería el activo y nadie lo completaría); los platillos se insertan
+  antes, idempotentes por nombre, y se valida que todo `FoodItem` exista antes
+  de escribir nada.
+- **`ensureBloque3` no pisa un plan posterior.** Activar y archivar solo
+  ocurren mientras el Bloque 3 sea el plan más nuevo por `vigenteDesde`. Sin
+  eso, un Bloque 4 vería sus platillos archivados en cada arranque.
+- **Bug corregido en `ensureBloque2`:** reactivaba el Bloque 2 en cada arranque
+  en cuanto dejara de estar activo (`if (!plan.activo)` sin más). Ahora tiene
+  la misma guarda de "no hay plan posterior".
+- **El batido post-gym es nuevo.** El "Batido post-entreno" existente es del
+  Bloque 1 y estaba archivado; no cuenta como "ya existe un batido activo".
+- **Slots sin metas en cero:** solo se crean `PlanMealSlotTarget` mayores que
+  cero (todos los consumidores filtran los ceros); `post_gym` no tiene ninguno.
+- **Pesos Omron (parte C) por variable de entorno, no en el código.** El
+  encargo pide sembrar el arreglo; el repo es público y el `.gitignore` ya
+  excluye los datos de salud. Van en `PESOS_EXTRA_BASE64` (base64 de
+  `[{"fecha","pesoKg"}]`), igual que `WEIGHT_CSV_BASE64`, y los carga
+  `ensurePesosExtra` con `fuente = manual` y `skipDuplicates`.
+
+**Adherencia de días pasados (punto D.6 del encargo): se calcula contra el plan
+ACTIVO, no contra el vigente en esa fecha.** `/api/historial`, `/api/semana` y
+las barras de Telegram resuelven `nutritionPlan.findFirst({ activo: true })`.
+Consecuencia: desde hoy, los días de agosto y septiembre se re-evalúan contra
+las metas del Bloque 3 (más bajas), así que su adherencia histórica cambió
+aunque sus kcal y macros congelados no. No se cambió; queda anotado.
+
+**Fase 8, cuando llegue:** `appgym` es la fuente canónica del peso. El promedio
+móvil tiene que tomar **un valor por fecha** (preferir `appgym`) para no contar
+doble las fechas que ya existen como `manual`.
+
+## Plan anterior: Bloque 2 (menú de Alma Lomeli, 2026-08-10 → 2026-09-25)
 
 Desde el 2026-08-11 la base sirve el **Bloque 2**, transcrito del PDF de la
 nutrióloga y descrito en `03-PLAN-NUTRICION.md:221-307`. El Bloque 1 sigue en la
@@ -60,7 +132,7 @@ plan. Si un bloque futuro vuelve a tener dos, hay que desambiguar por hora.
 
 | Fase | Entregable | Estado |
 |---|---|---|
-| 1 | Prisma schema + seed de catálogo, platillos y plan | ✅ Bloque 2 desde 2026-08-11 |
+| 1 | Prisma schema + seed de catálogo, platillos y plan | ✅ Bloque 3 desde 2026-09-26 |
 | 2 | Pantalla "Hoy" + registro por platillo guardado | ✅ |
 | 3 | Durabilidad: IndexedDB, outbox, PUT idempotentes, beacon | ✅ |
 | 4 | PWA + offline total | ✅ |

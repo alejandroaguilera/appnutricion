@@ -62,6 +62,7 @@ export async function construirContexto(fecha = localDayString()): Promise<Conte
     fibraObjetivo: plan?.fibraG ?? 0,
     aguaObjetivoL: plan?.aguaL ?? 0,
     planNombre: plan?.nombre ?? null,
+    planNotas: plan?.notas ?? null,
     nEntradas: meals.length,
 
     tiempos: (plan?.slots ?? []).map((s) => ({

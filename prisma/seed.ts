@@ -29,6 +29,19 @@ async function main() {
   // No aborta el arranque a propósito (ver ensureBloque2), pero tiene que
   // quedar visible en los logs del deploy.
   if (b2.error) console.error(`Bloque 2 INCOMPLETO: ${b2.error}`);
+
+  const b3 = fixups.bloque3;
+  console.log(
+    `Bloque 3: ${b3.platillosCreados} platillos, ${b3.platillosArchivados} archivados, plan ` +
+      `${b3.planCreado ? "creado" : "ya existente"}${b3.planActivado ? " y activado" : ""}.`
+  );
+  if (b3.error) console.error(`Bloque 3 INCOMPLETO: ${b3.error}`);
+
+  const pesos = fixups.pesos;
+  if (pesos.recibidos > 0 || pesos.error) {
+    console.log(`Pesos extra: ${pesos.creados} de ${pesos.recibidos} nuevos.`);
+  }
+  if (pesos.error) console.error(`Pesos extra NO cargados: ${pesos.error}`);
 }
 
 main()

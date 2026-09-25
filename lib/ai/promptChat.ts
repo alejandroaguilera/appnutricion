@@ -44,6 +44,8 @@ export interface ContextoChat {
   fibraObjetivo: number;
   aguaObjetivoL: number;
   planNombre: string | null;
+  /** Indicaciones de la nutrióloga: frecuencias ("bistec 1 vez/semana"), reglas. */
+  planNotas: string | null;
   nEntradas: number;
   tiempos: TiempoChat[];
   comidasDeHoy: ComidaDeHoy[];
@@ -110,6 +112,8 @@ function bloquePlan(c: ContextoChat): string {
       `${Math.round(c.carbosObjetivo)} g carbohidratos · ${Math.round(c.grasaObjetivo)} g grasa · ` +
       `${Math.round(c.fibraObjetivo)} g fibra · ${c.aguaObjetivoL} L de agua.`,
   ];
+
+  if (c.planNotas) lineas.push(`Indicaciones del plan:\n${c.planNotas}`);
 
   if (c.tiempos.length > 0) {
     lineas.push("Tiempos de comida y porciones que le tocan a cada uno:");

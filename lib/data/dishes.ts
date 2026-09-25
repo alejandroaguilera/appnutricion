@@ -15,6 +15,8 @@ export interface RawDish {
   nombre: string;
   alias?: string[];
   tipoComida: TipoComida[];
+  /** Receta completa y límites de frecuencia ("1 VEZ POR SEMANA"). */
+  descripcion?: string;
   componentes: RawComponent[];
   /** Se siembra con `archivadoEn` poblado: presente en la base y en el
    * historial, ausente de la interfaz de registro (§5.4.4, borrado lógico). */
