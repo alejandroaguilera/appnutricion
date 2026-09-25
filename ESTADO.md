@@ -74,6 +74,23 @@ Consecuencia: desde hoy, los días de agosto y septiembre se re-evalúan contra
 las metas del Bloque 3 (más bajas), así que su adherencia histórica cambió
 aunque sus kcal y macros congelados no. No se cambió; queda anotado.
 
+**Verificado en vivo el 2026-09-25** (tras dos despliegues, el segundo con
+`PESOS_EXTRA_BASE64` ya cargada — sirvió de prueba de reinicio): `/api/plan`
+sirve el Bloque 3 con metas y horas correctas; `/api/dishes` devuelve los 17
+platillos y nada más, igual después del reinicio; `POST /api/estimate` con
+«bowl de salmón» → `fuente: catalogo`, «Bowl de atún», 7 ms.
+`/api/historial` de ago-sep pasó de 8 a 17 días con peso. **Ojo:** el
+historial solo lista días que tienen `DayLog`, así que los pesos Omron de
+fechas sin registros de comida están en `WeightEntry` pero no se ven ahí; sí
+entran al promedio de `/api/semana`, que lee `WeightEntry` por rango… solo para
+días con `DayLog` también (`cargarDias` recorre `dayLog.findMany`).
+
+El plan se activó el 25 por la tarde (hora de Matamoros) aunque
+`vigenteDesde` diga 26: la app usa el plan `activo`, no la fecha.
+
+No se probó el registro real del punto D.3 (mollete en Hoy) para no crear una
+comida de prueba en los datos del atleta.
+
 **Fase 8, cuando llegue:** `appgym` es la fuente canónica del peso. El promedio
 móvil tiene que tomar **un valor por fecha** (preferir `appgym`) para no contar
 doble las fechas que ya existen como `manual`.
