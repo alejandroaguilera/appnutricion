@@ -1,20 +1,9 @@
-import { cn } from "@/lib/utils";
 import type { MacroResumen } from "@/lib/nutrition/summary";
+import { MacroBars } from "@/components/hoy/MacroBars";
 
-function Barra({ pct, className }: { pct: number; className?: string }) {
-  return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-surface-raised">
-      <div
-        className={cn("h-full rounded-full transition-[width] duration-300", className)}
-        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-      />
-    </div>
-  );
-}
-
-// Cabecera del día al estilo de las capturas: consumido contra objetivo, en
-// grande, con barras de kcal y proteína. Sin ✗ rojos ni caritas: un día fuera
-// de objetivo es un dato neutro (§7.4).
+// Cabecera del día: fecha + vista de macros (kcal · P · C · G) contra el
+// objetivo. Responde de un vistazo "cómo voy hoy". Sin ✗ rojos ni caritas:
+// un día fuera de objetivo es un dato neutro (§7.4).
 export function DayHeader({
   fecha,
   macros,
@@ -24,8 +13,6 @@ export function DayHeader({
   macros: MacroResumen;
   nEntradas: number;
 }) {
-  const kcalPct = macros.kcalObjetivo > 0 ? (macros.kcalActual / macros.kcalObjetivo) * 100 : 0;
-  const protPct = macros.proteinaObjetivo > 0 ? (macros.proteinaActual / macros.proteinaObjetivo) * 100 : 0;
   const fechaLarga = new Date(`${fecha}T12:00:00`).toLocaleDateString("es-MX", {
     weekday: "long",
     day: "numeric",
@@ -47,14 +34,7 @@ export function DayHeader({
         </p>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Barra pct={kcalPct} className="bg-primary" />
-        <div className="flex justify-between text-[11px] tabular-nums text-muted">
-          <span>{Math.round(macros.proteinaActual)} g proteína</span>
-          <span>objetivo {Math.round(macros.proteinaObjetivo)} g</span>
-        </div>
-        <Barra pct={protPct} className="bg-foreground/70" />
-      </div>
+      <MacroBars macros={macros} />
     </header>
   );
 }

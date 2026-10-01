@@ -4,7 +4,7 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-09-26 (ronda 8)
+**Última actualización:** 2026-10-01 (ronda 9 — vista de macros en Hoy)
 
 ## Plan vigente: Bloque 3 (plan 02 de Alma Lomeli)
 
@@ -274,6 +274,13 @@ sesión las "arreglaría" de vuelta.
    los renglones son la superficie principal de lectura y la cuadrícula de
    porciones queda debajo como verificación del plan. No se abandonó el modelo
    de porciones.
+
+   **Vista de macros en Hoy (2026-10-01).** Porciones ≠ macros: las barras de
+   abajo miden intercambios SMAE (proteína/cereal/grasa/fruta/verdura); la
+   cabecera ahora muestra kcal · P · C · G en gramos contra el objetivo del
+   plan (`MacroBars` en `DayHeader`), que es lo que sirve para ver "cómo voy
+   en el día". La línea chica `MacroSummaryLine` debajo de porciones se quitó:
+   era el mismo dato, ilegible. Historial de un día usa la misma cabecera.
 2. **Porciones sueltas ya no son un camino de registro.** "No sirven para
    nada" (Alejandro, 2026-08-03). El §3.2-C las define como camino C, pero se
    degradaron a un enlace discreto "Ajustar porciones a mano". El componente

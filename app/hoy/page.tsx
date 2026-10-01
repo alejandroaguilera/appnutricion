@@ -6,7 +6,6 @@ import { useHoyData } from "@/lib/hooks/useHoyData";
 import { computeBarras, computeMacros } from "@/lib/nutrition/summary";
 import { Screen } from "@/components/shell/Screen";
 import { PortionBars } from "@/components/hoy/PortionBars";
-import { MacroSummaryLine } from "@/components/hoy/MacroSummaryLine";
 import { DayHeader } from "@/components/hoy/DayHeader";
 import { MealRow } from "@/components/hoy/MealRow";
 import { WaterCounter } from "@/components/hoy/WaterCounter";
@@ -38,6 +37,7 @@ export default function HoyPage() {
 
   return (
     <Screen>
+      {/* Macros del día (kcal · P · C · G): cómo voy contra el objetivo. */}
       <DayHeader fecha={fecha} macros={macros} nEntradas={meals.length} />
 
       {/* Lo que se comió, en renglones legibles: la superficie principal. */}
@@ -96,11 +96,12 @@ export default function HoyPage() {
         ))}
       </section>
 
-      {/* Verificación contra el plan: el plan se ejecuta en porciones (§3.1). */}
+      {/* Verificación del plan en intercambios SMAE — distinto de los macros
+          de arriba: aquí se lee proteína/cereal/grasa/fruta/verdura en
+          porciones, no en gramos. */}
       <section className="border-t border-border pt-4">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Porciones</h2>
         <PortionBars barras={barras} />
-        <MacroSummaryLine macros={macros} />
       </section>
 
       <section className="flex flex-col gap-4 border-t border-border pt-4">
