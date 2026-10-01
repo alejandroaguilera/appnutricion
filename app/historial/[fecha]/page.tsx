@@ -7,7 +7,6 @@ import { useHoyData } from "@/lib/hooks/useHoyData";
 import { computeBarras, computeMacros } from "@/lib/nutrition/summary";
 import { Screen } from "@/components/shell/Screen";
 import { PortionBars } from "@/components/hoy/PortionBars";
-import { MacroSummaryLine } from "@/components/hoy/MacroSummaryLine";
 import { DayHeader } from "@/components/hoy/DayHeader";
 import { MealRow } from "@/components/hoy/MealRow";
 
@@ -58,7 +57,6 @@ export default function DiaHistorialPage() {
       <section className="border-t border-border pt-4">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Porciones</h2>
         <PortionBars barras={barras} />
-        <MacroSummaryLine macros={macros} />
       </section>
     </Screen>
   );
