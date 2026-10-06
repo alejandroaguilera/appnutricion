@@ -7,6 +7,10 @@ import { Trash2 } from "lucide-react";
 import { useHoyData } from "@/lib/hooks/useHoyData";
 import { getMealEntry, getPortionsForMeal, updateMealEntry, deleteMealEntry } from "@/lib/db/mealEntries";
 import { getDayLog } from "@/lib/db/dayLogs";
+import { getCachedDishes } from "@/lib/db/catalogSync";
+import { saveUserDish } from "@/lib/db/dishes";
+import { SLOT_TO_TIPO_COMIDA } from "@/lib/data/plan";
+import { localDayString } from "@/lib/date";
 import { macrosDePorcion, macrosPropiasGuardadas } from "@/lib/nutrition/groups";
 import { triggerFlush } from "@/lib/sync/flush";
 import { Screen } from "@/components/shell/Screen";
@@ -24,6 +28,7 @@ export default function EditarComidaPage() {
   const [titulo, setTitulo] = useState("");
   const [porciones, setPorciones] = useState<PorcionEditable[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [enGuardadas, setEnGuardadas] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -37,6 +42,8 @@ export default function EditarComidaPage() {
       // Cada porción guardada se vuelve un renglón editable independiente: así
       // dos alimentos del mismo grupo dejan de pisarse entre sí, que es lo que
       // pasaba al editar por grupo agregado.
+      const guardadas = await getCachedDishes();
+      setEnGuardadas(guardadas.some((d) => d.creadoPorUsuario && d.id === e.dishId));
       setPorciones(
         previas.map((p) => ({
           id: p.id,
@@ -80,18 +87,47 @@ export default function EditarComidaPage() {
       }
       await updateMealEntry({ ...entry, titulo: titulo.trim() || null }, nuevas, fecha);
       void triggerFlush("visible");
-      router.push("/hoy");
+      router.push(fecha === localDayString() ? "/hoy" : `/historial/${fecha}`);
     } finally {
       setGuardando(false);
     }
   }, [entry, fecha, foodGroups, porciones, titulo, router]);
+
+  const guardarParaRepetir = useCallback(async () => {
+    if (!entry || !titulo.trim()) return;
+    setGuardando(true);
+    try {
+      await saveUserDish({
+        nombre: titulo.trim(),
+        tipoComida: SLOT_TO_TIPO_COMIDA[entry.clave],
+        foodGroups,
+        portions: porciones
+          .filter((p) => p.porciones > 0)
+          .map((p) => ({
+            foodGroupId: p.foodGroupId,
+            foodItemId: p.foodItemId,
+            porciones: p.porciones,
+            nombre: p.nombre,
+            cantidad: p.cantidad,
+            kcal: p.kcal,
+            proteinaG: p.proteinaG,
+            carbosG: p.carbosG,
+            grasaG: p.grasaG,
+          })),
+      });
+      setEnGuardadas(true);
+      void triggerFlush("visible");
+    } finally {
+      setGuardando(false);
+    }
+  }, [entry, foodGroups, porciones, titulo]);
 
   const eliminar = useCallback(async () => {
     if (!entry || !fecha) return;
     setGuardando(true);
     await deleteMealEntry(entry, fecha);
     void triggerFlush("visible");
-    router.push("/hoy");
+    router.push(fecha === localDayString() ? "/hoy" : `/historial/${fecha}`);
   }, [entry, fecha, router]);
 
   if (!entry || !plan) {
@@ -111,7 +147,10 @@ export default function EditarComidaPage() {
           <h1 className="text-lg font-semibold text-foreground">Editar</h1>
           <p className="text-xs text-muted">{slot?.nombre ?? entry.clave}</p>
         </div>
-        <Link href="/hoy" className="text-sm text-muted underline underline-offset-4">
+        <Link
+          href={fecha && fecha !== localDayString() ? `/historial/${fecha}` : "/hoy"}
+          className="text-sm text-muted underline underline-offset-4"
+        >
           Cancelar
         </Link>
       </header>
@@ -150,6 +189,19 @@ export default function EditarComidaPage() {
           onChange={setPorciones}
         />
       </section>
+
+      {enGuardadas ? (
+        <p className="text-sm text-muted">Quedó en Guardadas de esta comida.</p>
+      ) : (
+        <Button
+          variant="secondary"
+          size="lg"
+          disabled={guardando || titulo.trim().length === 0 || porciones.every((p) => p.porciones <= 0)}
+          onClick={() => void guardarParaRepetir()}
+        >
+          Guardar para repetir
+        </Button>
+      )}
 
       <Button size="lg" disabled={guardando} onClick={() => void guardar()}>
         {guardando ? "Guardando…" : "Guardar cambios"}

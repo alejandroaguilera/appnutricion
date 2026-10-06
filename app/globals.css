@@ -1,17 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --background: #14100b;
-  --surface: #1c1712;
-  --surface-raised: #26201a;
-  --border: #383026;
-  --foreground: #f6f3ef;
-  --muted: #ac9f8f;
-  --primary: #e0a83d;
-  --primary-foreground: #14100b;
-  --danger: #ef4444;
-  --danger-foreground: #fff1f1;
-  --warning: #f5b942;
+  /* Carbón frío, no marrón. El acento es salvia: se lee de día y de noche
+     y no usa el rojo para decir "vas mal". */
+  --background: #101412;
+  --surface: #181e1b;
+  --surface-raised: #222a26;
+  --border: #313b36;
+  --foreground: #f4f7f5;
+  --muted: #a8b5ae;
+  --primary: #8fce7c;
+  --primary-foreground: #101412;
+  --danger: #e08b7d;
+  --danger-foreground: #1c100e;
+  --warning: #e2b15c;
+  --macro-p: #8eb8d4;
+  --macro-c: #e2c48a;
+  --macro-g: #d7a8bc;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -29,6 +34,9 @@
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-warning: var(--warning);
+  --color-macro-p: var(--macro-p);
+  --color-macro-c: var(--macro-c);
+  --color-macro-g: var(--macro-g);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

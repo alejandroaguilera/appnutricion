@@ -1,3 +1,4 @@
+import { horaParaRegistro } from "@/lib/date";
 import { ensureDayLog } from "@/lib/db/dayLogs";
 import { saveMealEntry } from "@/lib/db/mealEntries";
 import { macrosDePorcion, type MacrosPorPorcion } from "@/lib/nutrition/groups";
@@ -120,7 +121,7 @@ export async function registerMeal(params: {
         dayLogId: dayLog.id,
         planMealSlotId: slot.id,
         clave: slot.clave,
-        horaRegistro: ahora,
+        horaRegistro: horaParaRegistro(fecha, slot.horaSugerida, ahora),
         version: 1,
         archivadoEn: null,
         ...base,
