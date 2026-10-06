@@ -46,6 +46,26 @@ export function localDayBounds(
 // componentes Y-M-D tal como se guardaron y se reconstruye un Date a
 // medianoche LOCAL, para que cualquier formateo/orden/comparación posterior
 // sea consistente sin depender del huso del que lo mire.
+// Fecha de un registro: hoy, o un día pasado explícito. Una fecha futura o
+// mal formada vuelve a hoy — no hay forma de adelantar el diario.
+export function fechaDeRegistro(raw: string | null | undefined, ahora: Date = new Date()): string {
+  const hoy = localDayString(ahora);
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw) || raw > hoy) return hoy;
+  return raw;
+}
+
+// Hoy se registra a la hora real. Un día pasado usa la hora sugerida del
+// tiempo de comida, para que la cena olvidada no diga las 3 de la mañana.
+export function horaParaRegistro(fecha: string, horaSugerida: string, ahora: Date = new Date()): Date {
+  if (fecha === localDayString(ahora)) return ahora;
+  const d = dateOnlyToLocalDate(fecha);
+  const [hs, ms] = horaSugerida.split(":");
+  const h = Number.parseInt(hs ?? "", 10);
+  const m = Number.parseInt(ms ?? "", 10);
+  if (Number.isFinite(h) && Number.isFinite(m)) d.setHours(h, m, 0, 0);
+  return d;
+}
+
 export function dateOnlyToLocalDate(fecha: string | Date): Date {
   const iso = typeof fecha === "string" ? fecha : fecha.toISOString();
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);

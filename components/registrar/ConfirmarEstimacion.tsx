@@ -37,7 +37,7 @@ export function ConfirmarEstimacion({
   resultado: ResultadoEstimacion;
   foodGroups: FoodGroupRecord[];
   foodItems: FoodItemRecord[];
-  onConfirmar: (titulo: string, porciones: PorcionConfirmada[]) => Promise<void>;
+  onConfirmar: (titulo: string, porciones: PorcionConfirmada[], guardar: boolean) => Promise<void>;
   onCancelar: () => void;
 }) {
   const { estimacion } = resultado;
@@ -65,6 +65,8 @@ export function ConfirmarEstimacion({
       }))
   );
   const [guardando, setGuardando] = useState(false);
+  const [guardarPlatillo, setGuardarPlatillo] = useState(false);
+  const faltaNombre = guardarPlatillo && titulo.trim().length === 0;
 
   const confirmar = async () => {
     setGuardando(true);
@@ -83,7 +85,8 @@ export function ConfirmarEstimacion({
             proteinaG: p.proteinaG,
             carbosG: p.carbosG,
             grasaG: p.grasaG,
-          }))
+          })),
+        guardarPlatillo
       );
     } finally {
       setGuardando(false);
@@ -123,6 +126,25 @@ export function ConfirmarEstimacion({
         />
       </label>
 
+      {resultado.fuente !== "catalogo" && (
+        <label className="flex items-start gap-3 rounded-xl border border-border bg-surface p-3">
+          <input
+            type="checkbox"
+            checked={guardarPlatillo}
+            onChange={(e) => setGuardarPlatillo(e.target.checked)}
+            className="mt-0.5 size-5 accent-primary"
+          />
+          <span>
+            <span className="block text-sm font-medium text-foreground">Guardar para repetir</span>
+            <span className="block text-xs text-muted">
+              {faltaNombre
+                ? "Ponle un nombre para dejarla en Guardadas."
+                : "Queda en Guardadas de esta comida, aparte de los platillos del plan."}
+            </span>
+          </span>
+        </label>
+      )}
+
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted">Alimentos</h2>
         <EditorPorciones
@@ -141,7 +163,7 @@ export function ConfirmarEstimacion({
           size="lg"
           className="flex-[2]"
           onClick={() => void confirmar()}
-          disabled={guardando || porciones.every((p) => p.porciones <= 0)}
+          disabled={guardando || faltaNombre || porciones.every((p) => p.porciones <= 0)}
         >
           {guardando ? "Guardando…" : "Confirmar"}
         </Button>

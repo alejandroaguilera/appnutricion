@@ -21,8 +21,9 @@ export type FoodGroupClave =
 export type TipoComida = "desayuno" | "comida" | "cena" | "snack";
 export type OrigenMealEntry = "app" | "telegram" | "import";
 
-// ── Catálogo/plan/platillos: espejo de solo lectura, hidratado desde el
-// servidor (lib/db/catalogSync.ts). ──────────────────────────────────────
+// ── Catálogo y plan: espejo de solo lectura, hidratado desde el servidor.
+// Los platillos del plan también. Los que el atleta guarda (`creadoPorUsuario`)
+// nacen aquí y se sincronizan con PUT; la hidratación los fusiona, no los pisa.
 
 export interface FoodGroupRecord {
   id: string;
@@ -54,6 +55,12 @@ export interface DishComponentRecord {
   foodGroupId: string;
   porciones: number;
   notaLibre: string | null;
+  // Tasa por una porción. Solo tiene sentido en `libre`; en el resto es null
+  // y el registro recalcula con el SMAE.
+  kcalPorPorcion: number | null;
+  proteinaGPorPorcion: number | null;
+  carbosGPorPorcion: number | null;
+  grasaGPorPorcion: number | null;
   foodGroup: { clave: FoodGroupClave };
   foodItem: { nombre: string; cantidadPorcion: string } | null;
 }
@@ -64,6 +71,10 @@ export interface DishRecord {
   alias: string[];
   tipoComida: TipoComida[];
   vecesUsado: number;
+  // false = menú de la nutrióloga. true = comida que el atleta guardó.
+  creadoPorUsuario: boolean;
+  archivadoEn: Date | null;
+  actualizadoEn: Date;
   components: DishComponentRecord[];
 }
 

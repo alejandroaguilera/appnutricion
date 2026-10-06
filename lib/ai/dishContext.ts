@@ -5,20 +5,37 @@ import type { DishMatchContext } from "./localMatch";
 // modelo como contexto para que prefiera identificar uno existente antes que
 // estimar desde cero, y sirven además para el emparejamiento local que evita
 // llamar al modelo del todo.
-export async function loadDishContext(limite = 20): Promise<DishMatchContext[]> {
-  const dishes = await prisma.dish.findMany({
-    where: { archivadoEn: null },
-    orderBy: [{ vecesUsado: "desc" }, { nombre: "asc" }],
-    take: limite,
+const dishInclude = {
+  components: {
     include: {
-      components: {
-        include: {
-          foodGroup: { select: { clave: true } },
-          foodItem: { select: { nombre: true, cantidadPorcion: true } },
-        },
-      },
+      foodGroup: { select: { clave: true } },
+      foodItem: { select: { nombre: true, cantidadPorcion: true } },
     },
-  });
+  },
+} as const;
+
+export async function loadDishContext(limite = 20): Promise<DishMatchContext[]> {
+  // La mitad del cupo queda para lo que el atleta guardó, aunque tenga 0 usos.
+  // Si no, los 17 platillos del plan —más usados— empujan fuera del contexto
+  // justo la comida que quería poder repetir por nombre.
+  const cupoPropio = Math.ceil(limite / 2);
+  const [propios, delPlan] = await Promise.all([
+    prisma.dish.findMany({
+      where: { archivadoEn: null, creadoPorUsuario: true },
+      orderBy: [{ vecesUsado: "desc" }, { nombre: "asc" }],
+      take: cupoPropio,
+      include: dishInclude,
+    }),
+    prisma.dish.findMany({
+      where: { archivadoEn: null, creadoPorUsuario: false },
+      orderBy: [{ vecesUsado: "desc" }, { nombre: "asc" }],
+      take: limite,
+      include: dishInclude,
+    }),
+  ]);
+
+  const vistos = new Set(propios.map((d) => d.id));
+  const dishes = [...propios, ...delPlan.filter((d) => !vistos.has(d.id))].slice(0, limite);
 
   return dishes.map((d) => ({
     id: d.id,
@@ -37,6 +54,10 @@ export async function loadDishContext(limite = 20): Promise<DishMatchContext[]> 
       // y se perdían en cuanto el componente tenía un FoodItem asociado.
       notaLibre: c.notaLibre,
       cantidadPorcion: c.foodItem?.cantidadPorcion ?? null,
+      kcalPorPorcion: c.kcalPorPorcion,
+      proteinaGPorPorcion: c.proteinaGPorPorcion,
+      carbosGPorPorcion: c.carbosGPorPorcion,
+      grasaGPorPorcion: c.grasaGPorPorcion,
     })),
   }));
 }

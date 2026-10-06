@@ -56,6 +56,17 @@ export async function upsertMealEntry(input: MealEntryInput) {
   return prisma.$transaction(async (tx) => {
     const dayLog = await resolveDayLog(tx, { dayLogId: data.dayLogId, fecha: data.fecha });
 
+    // El platillo guardado y la comida salen juntos del cliente, y el outbox
+    // no garantiza cuál PUT llega primero. Si el platillo aún no existe, la
+    // comida se guarda igual y sin el enlace: perder el registro por una FK
+    // sería un 422 permanente. La próxima vez que lo elija de Guardadas, el
+    // platillo ya está y el conteo de uso sí sube.
+    let dishId = data.dishId;
+    if (dishId) {
+      const dish = await tx.dish.findUnique({ where: { id: dishId }, select: { id: true } });
+      if (!dish) dishId = null;
+    }
+
     const mealEntry = await tx.mealEntry.upsert({
       where: { id: data.id },
       create: {
@@ -64,7 +75,7 @@ export async function upsertMealEntry(input: MealEntryInput) {
         planMealSlotId: data.planMealSlotId,
         clave: data.clave,
         horaRegistro: new Date(data.horaRegistro),
-        dishId: data.dishId,
+        dishId,
         textoLibre: data.textoLibre,
         fueraDeCasa: data.fueraDeCasa,
         notas: data.notas,
@@ -84,7 +95,7 @@ export async function upsertMealEntry(input: MealEntryInput) {
         planMealSlotId: data.planMealSlotId,
         clave: data.clave,
         horaRegistro: new Date(data.horaRegistro),
-        dishId: data.dishId,
+        dishId,
         textoLibre: data.textoLibre,
         fueraDeCasa: data.fueraDeCasa,
         notas: data.notas,
@@ -126,8 +137,8 @@ export async function upsertMealEntry(input: MealEntryInput) {
 
     // Alimenta el orden "por frecuencia" del camino A (§3.2) — solo al crear,
     // nunca al reenviar/editar la misma entrada, para no inflar el conteo.
-    if (!existing && data.dishId) {
-      await tx.dish.update({ where: { id: data.dishId }, data: { vecesUsado: { increment: 1 } } });
+    if (!existing && dishId) {
+      await tx.dish.update({ where: { id: dishId }, data: { vecesUsado: { increment: 1 } } });
     }
 
     return tx.mealEntry.findUniqueOrThrow({

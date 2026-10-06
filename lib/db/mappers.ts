@@ -2,9 +2,12 @@ import type {
   DayLogRecord,
   MealEntryRecord,
   MealEntryPortionRecord,
+  DishRecord,
+  DishComponentRecord,
   PlanMealSlotClave,
   OrigenMealEntry,
   FoodGroupClave,
+  TipoComida,
 } from "./types";
 
 // El bug que perdió los registros de agosto: el servidor mandaba `fecha` como
@@ -66,6 +69,51 @@ export function toMealEntryRecord(raw: Record<string, unknown>): MealEntryRecord
     fotoPrincipalId: (raw.fotoPrincipalId as string | null) ?? null,
     archivadoEn: toDateOrNull(raw.archivadoEn as string | null),
     actualizadoEn: toDate(raw.actualizadoEn as string | Date),
+  };
+}
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function toDishComponent(raw: Record<string, unknown>, dishId: string): DishComponentRecord {
+  const foodGroup = raw.foodGroup as { clave?: FoodGroupClave } | undefined;
+  const foodItem = raw.foodItem as { nombre?: string; cantidadPorcion?: string } | null | undefined;
+  return {
+    id: String(raw.id),
+    dishId: raw.dishId ? String(raw.dishId) : dishId,
+    foodItemId: (raw.foodItemId as string | null) ?? null,
+    foodGroupId: String(raw.foodGroupId),
+    porciones: Number(raw.porciones),
+    notaLibre: (raw.notaLibre as string | null) ?? null,
+    kcalPorPorcion: numOrNull(raw.kcalPorPorcion),
+    proteinaGPorPorcion: numOrNull(raw.proteinaGPorPorcion),
+    carbosGPorPorcion: numOrNull(raw.carbosGPorPorcion),
+    grasaGPorPorcion: numOrNull(raw.grasaGPorPorcion),
+    foodGroup: { clave: (foodGroup?.clave ?? "libre") as FoodGroupClave },
+    foodItem: foodItem?.nombre
+      ? { nombre: String(foodItem.nombre), cantidadPorcion: String(foodItem.cantidadPorcion ?? "") }
+      : null,
+  };
+}
+
+// Misma regla que el día y la comida: el JSON del servidor no entra a
+// IndexedDB por spread. Un platillo trae `createdAt` y relaciones que el
+// store no pide, y un Date serializado donde el cliente espera otra cosa
+// vuelve a ser el bug del índice envenenado, solo que en otro store.
+export function toDishRecord(raw: Record<string, unknown>): DishRecord {
+  const id = String(raw.id);
+  const components = Array.isArray(raw.components) ? raw.components : [];
+  return {
+    id,
+    nombre: String(raw.nombre ?? ""),
+    alias: Array.isArray(raw.alias) ? raw.alias.map(String) : [],
+    tipoComida: (Array.isArray(raw.tipoComida) ? raw.tipoComida : []) as TipoComida[],
+    vecesUsado: Number(raw.vecesUsado ?? 0),
+    creadoPorUsuario: Boolean(raw.creadoPorUsuario),
+    archivadoEn: toDateOrNull(raw.archivadoEn as string | Date | null),
+    actualizadoEn: raw.actualizadoEn ? toDate(raw.actualizadoEn as string | Date) : new Date(0),
+    components: components.map((c) => toDishComponent(c as Record<string, unknown>, id)),
   };
 }
 

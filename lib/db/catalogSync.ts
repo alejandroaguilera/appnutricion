@@ -1,4 +1,6 @@
 import { getDB } from "./indexeddb";
+import { toDishRecord } from "./mappers";
+import { fusionarPlatillos } from "./dishes";
 import type { FoodGroupRecord, FoodItemRecord, DishRecord, PlanRecord } from "./types";
 
 // Hidrata IndexedDB desde el servidor — llamado al montar la app y al
@@ -33,10 +35,13 @@ export async function hydrateCatalog(): Promise<void> {
     }
 
     if (dishesRes.ok) {
-      const { dishes }: { dishes: DishRecord[] } = await dishesRes.json();
+      const { dishes }: { dishes: Record<string, unknown>[] } = await dishesRes.json();
+      const servidor = dishes.map((d) => toDishRecord(d));
       const tx = db.transaction("dishes", "readwrite");
+      const locales = (await tx.store.getAll()).map((d) => toDishRecord(d as unknown as Record<string, unknown>));
+      const fusion = fusionarPlatillos(locales, servidor);
       await tx.store.clear();
-      await Promise.all(dishes.map((d) => tx.store.put(d)));
+      await Promise.all(fusion.map((d) => tx.store.put(d)));
       await tx.done;
     }
 
@@ -65,10 +70,23 @@ export async function getCachedCatalog(): Promise<FoodItemRecord[]> {
   return db.getAll("catalog");
 }
 
+function momento(d: DishRecord): number {
+  return d.actualizadoEn instanceof Date ? d.actualizadoEn.getTime() : 0;
+}
+
 export async function getCachedDishes(): Promise<DishRecord[]> {
   const db = await getDB();
   const all = await db.getAll("dishes");
-  return all.sort((a, b) => b.vecesUsado - a.vecesUsado);
+  return all
+    .filter((d) => !d.archivadoEn)
+    .sort((a, b) => {
+      const aPropio = Boolean(a.creadoPorUsuario);
+      const bPropio = Boolean(b.creadoPorUsuario);
+      if (aPropio !== bPropio) return aPropio ? -1 : 1;
+      // Lo que acabas de guardar queda arriba. Los del plan siguen por uso.
+      if (aPropio) return momento(b) - momento(a);
+      return b.vecesUsado - a.vecesUsado;
+    });
 }
 
 export async function getCachedPlan(): Promise<PlanRecord | null> {

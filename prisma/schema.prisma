@@ -133,6 +133,13 @@ model Dish {
   tiempoPrepMin Int?
   esFavorito    Boolean      @default(false)
   vecesUsado    Int          @default(0)
+  // false = platillo del menú de la nutrióloga. true = comida que el atleta
+  // eligió guardar para repetir. La UI las enseña en pestañas distintas; un
+  // registro suelto no se convierte en platillo solo por existir.
+  creadoPorUsuario Boolean    @default(false)
+  // Reloj del cliente. Una escritura más vieja no pisa una más nueva: el
+  // outbox puede reenviar el alta después de que el atleta ya la quitó.
+  actualizadoEn    DateTime   @default(now())
   archivadoEn   DateTime?
   createdAt     DateTime     @default(now())
 
@@ -147,6 +154,13 @@ model DishComponent {
   foodGroupId String
   porciones   Float
   notaLibre   String?
+  // Tasa por UNA porción, solo para el grupo `libre` (cerveza, refresco,
+  // marca). Los otros grupos se recalculan con el SMAE al registrar; guardar
+  // aquí su tasa congelaría un número que la regla dice que sale del grupo.
+  kcalPorPorcion      Float?
+  proteinaGPorPorcion Float?
+  carbosGPorPorcion   Float?
+  grasaGPorPorcion    Float?
 
   dish      Dish      @relation(fields: [dishId], references: [id], onDelete: Cascade)
   foodItem  FoodItem? @relation(fields: [foodItemId], references: [id])

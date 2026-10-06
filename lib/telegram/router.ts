@@ -628,12 +628,17 @@ async function enviarPlatillos(chatId: string): Promise<void> {
   const dishes = await prisma.dish.findMany({
     where: { archivadoEn: null },
     orderBy: [{ vecesUsado: "desc" }, { nombre: "asc" }],
-    take: 30,
+    take: 40,
   });
-  const lineas = dishes.map(
-    (d) => `• ${d.nombre}${d.alias.length ? ` <i>(${d.alias.join(", ")})</i>` : ""}`
-  );
-  await sendMessage(chatId, `<b>Tus platillos</b>\n\n${lineas.join("\n")}`);
+  const linea = (d: (typeof dishes)[number]) =>
+    `• ${d.nombre}${d.alias.length ? ` <i>(${d.alias.join(", ")})</i>` : ""}`;
+  const guardadas = dishes.filter((d) => d.creadoPorUsuario);
+  const delPlan = dishes.filter((d) => !d.creadoPorUsuario);
+  const bloques = [
+    delPlan.length ? `<b>Del plan</b>\n${delPlan.map(linea).join("\n")}` : "",
+    guardadas.length ? `<b>Guardadas</b>\n${guardadas.map(linea).join("\n")}` : "",
+  ].filter(Boolean);
+  await sendMessage(chatId, `<b>Tus platillos</b>\n\n${bloques.join("\n\n") || "Todavía no hay."}`);
 }
 
 async function registrarAgua(chatId: string, argumento: string): Promise<void> {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upsertDayLog } from "@/lib/services/dayLog";
 import { upsertMealEntry } from "@/lib/services/mealEntry";
+import { upsertUserDish } from "@/lib/services/dish";
 import { withRoute } from "@/lib/http/route";
 import { logEvent, errorInfo } from "@/lib/log";
 
@@ -12,6 +13,7 @@ interface BeaconItem {
 
 const DAY_RE = /^\/api\/days\/([^/]+)$/;
 const MEAL_RE = /^\/api\/days\/([^/]+)\/meals\/([^/]+)$/;
+const DISH_RE = /^\/api\/dishes\/([^/]+)$/;
 
 // Repite lo que quedó pendiente en el outbox del cliente al momento del
 // desmontaje (pagehide), vía navigator.sendBeacon. Usa las mismas funciones
@@ -36,10 +38,15 @@ export const POST = withRoute<unknown>("sync.beacon", async (req: NextRequest) =
     try {
       const mealMatch = item.url.match(MEAL_RE);
       const dayMatch = item.url.match(DAY_RE);
+      const dishMatch = item.url.match(DISH_RE);
 
       if (mealMatch) {
         const [, dayLogId, mealId] = mealMatch;
         await upsertMealEntry({ ...(item.body as object), id: mealId, dayLogId } as never);
+        entregados++;
+      } else if (dishMatch) {
+        const [, dishId] = dishMatch;
+        await upsertUserDish({ ...(item.body as object), id: dishId } as never);
         entregados++;
       } else if (dayMatch) {
         const [, dayLogId] = dayMatch;

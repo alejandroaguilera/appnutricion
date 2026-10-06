@@ -3,13 +3,17 @@
 import { useEffect, useState } from "react";
 import { useHoyData } from "@/lib/hooks/useHoyData";
 import { getCachedDishes } from "@/lib/db/catalogSync";
+import { archiveUserDish } from "@/lib/db/dishes";
 import { bucketNombreForClave } from "@/lib/nutrition/groups";
+import { triggerFlush } from "@/lib/sync/flush";
 import { Screen } from "@/components/shell/Screen";
 import { Card } from "@/components/ui/card";
+import { PlatilloList } from "@/components/registrar/PlatilloList";
 import type { DishRecord } from "@/lib/db/types";
 
 // §3.3: vista de solo lectura del plan vigente + catálogo de platillos. El
-// editor de platillos y el historial de planes son de una ronda posterior.
+// editor de platillos del plan y el historial de planes son de una ronda
+// posterior. Las comidas que el atleta guardó sí se pueden quitar.
 export default function PlanPage() {
   const { loading, plan } = useHoyData();
   const [dishes, setDishes] = useState<DishRecord[]>([]);
@@ -17,6 +21,15 @@ export default function PlanPage() {
   useEffect(() => {
     void getCachedDishes().then(setDishes);
   }, []);
+
+  const quitar = async (dish: DishRecord) => {
+    await archiveUserDish(dish);
+    setDishes((prev) => prev.filter((d) => d.id !== dish.id));
+    void triggerFlush("visible");
+  };
+
+  const delPlan = dishes.filter((d) => !d.creadoPorUsuario);
+  const guardadas = dishes.filter((d) => d.creadoPorUsuario);
 
   if (loading || !plan) {
     return (
@@ -89,10 +102,10 @@ export default function PlanPage() {
 
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted">
-          Platillos guardados <span className="font-normal">({dishes.length})</span>
+          Platillos del plan <span className="font-normal">({delPlan.length})</span>
         </h2>
         <ul className="flex flex-col gap-1">
-          {dishes.map((d) => (
+          {delPlan.map((d) => (
             <li key={d.id} className="flex justify-between gap-2 border-b border-border py-2 text-sm last:border-0">
               <span className="min-w-0 flex-1 truncate text-foreground">{d.nombre}</span>
               <span className="shrink-0 text-xs tabular-nums text-muted">
@@ -101,6 +114,17 @@ export default function PlanPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-muted">
+          Guardadas <span className="font-normal">({guardadas.length})</span>
+        </h2>
+        <PlatilloList
+          dishes={guardadas}
+          onQuitar={(dish) => void quitar(dish)}
+          vacio="Todavía no guardas comidas aparte del plan."
+        />
       </section>
     </Screen>
   );

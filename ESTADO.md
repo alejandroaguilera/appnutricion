@@ -4,7 +4,39 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-10-01 (ronda 9 — vista de macros en Hoy)
+**Última actualización:** 2026-10-06 (ronda 10 — comidas guardadas, días pasados, paleta)
+
+## Ronda 10 — comidas fuera del plan, días pasados, paleta
+
+**Comidas que no están en el plan.** Un registro suelto sigue siendo solo un
+registro. Al confirmar una estimación (o desde editar) hay que marcar
+**Guardar para repetir**; si no, no se crea platillo. Esas comidas viven en
+`Dish.creadoPorUsuario` y se muestran en la pestaña **Guardadas**, aparte de
+**Del plan**, en el tiempo de comida donde se guardaron. Quitarlas es borrado
+lógico (`archivadoEn`): desaparecen de la lista y los registros ya hechos se
+quedan. Nacen con UUID en el cliente y viajan por `PUT /api/dishes/[id]`,
+igual que una comida. La hidratación del catálogo las fusiona: un alta que
+aún no llegó no se borra al reescribir el store, y un "quitar" local no
+resucita si el servidor sigue mandando el platillo. Una comida puede
+enlazarse a un platillo que todavía no existe en el servidor (los dos PUT
+salen juntos y el outbox no ordena); en ese caso el registro se guarda igual
+y sin el enlace, en vez de caer en un 422 permanente. El grupo `libre`
+guarda la tasa por porción en el componente, para que repetir una cerveza no
+vuelva a 0 kcal. El contexto que ve el modelo reserva la mitad del cupo a
+estas comidas: si no, los 17 platillos del plan las empujan fuera de los 20.
+
+**Días pasados.** El historial de un día usa la misma lista que Hoy, con `+`.
+El enlace lleva `?fecha=`. Una fecha futura o rota se registra en hoy. En un
+día pasado la hora del renglón es la hora sugerida del tiempo (la cena
+olvidada queda a las 21:00, no a la hora en que se acordó).
+
+**Paleta.** El marrón con dorado se sentía cerrado y el texto secundario
+contrastaba poco. Ahora es carbón frío con acento salvia; P, C y G tienen
+cada uno un color informativo (azul, arena, malva) y ninguno es rojo de
+castigo. Los tiempos del día van en tarjetas y el `+` es un blanco de 44 px:
+antes era un círculo chico y fácil de no ver, que es parte de por qué un día
+pasado se sentía de solo lectura. No se tocó la jerarquía de la pantalla
+(renglones, luego porciones, luego agua/peso/nota) ni el lenguaje.
 
 ## Plan vigente: Bloque 3 (plan 02 de Alma Lomeli)
 

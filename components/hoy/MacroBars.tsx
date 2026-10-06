@@ -64,21 +64,21 @@ export function MacroBars({ macros }: { macros: MacroResumen }) {
           actual={macros.proteinaActual}
           objetivo={macros.proteinaObjetivo}
           unidad="g"
-          className="bg-foreground/70"
+          className="bg-macro-p"
         />
         <MacroFila
           etiqueta="C"
           actual={macros.carbosActual}
           objetivo={macros.carbosObjetivo}
           unidad="g"
-          className="bg-foreground/50"
+          className="bg-macro-c"
         />
         <MacroFila
           etiqueta="G"
           actual={macros.grasaActual}
           objetivo={macros.grasaObjetivo}
           unidad="g"
-          className="bg-foreground/40"
+          className="bg-macro-g"
         />
       </div>
     </div>

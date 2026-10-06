@@ -1,13 +1,11 @@
 "use client";
 
-import Link from "next/link";
-import { Plus } from "lucide-react";
 import { useHoyData } from "@/lib/hooks/useHoyData";
 import { computeBarras, computeMacros } from "@/lib/nutrition/summary";
 import { Screen } from "@/components/shell/Screen";
 import { PortionBars } from "@/components/hoy/PortionBars";
 import { DayHeader } from "@/components/hoy/DayHeader";
-import { MealRow } from "@/components/hoy/MealRow";
+import { DaySlots } from "@/components/hoy/DaySlots";
 import { WaterCounter } from "@/components/hoy/WaterCounter";
 import { WeightTodayCard } from "@/components/hoy/WeightTodayCard";
 import { DayNoteField } from "@/components/hoy/DayNoteField";
@@ -27,74 +25,12 @@ export default function HoyPage() {
   const barras = computeBarras(plan, foodGroups, allPortions);
   const macros = computeMacros(plan, allPortions);
 
-  const porSlot = new Map<string, typeof meals>();
-  for (const m of meals) {
-    porSlot.set(m.entry.clave, [...(porSlot.get(m.entry.clave) ?? []), m]);
-  }
-
-  const clavesDelPlan = new Set<string>(plan?.slots.map((s) => s.clave) ?? []);
-  const huerfanas = [...porSlot].filter(([clave]) => !clavesDelPlan.has(clave));
-
   return (
     <Screen>
       {/* Macros del día (kcal · P · C · G): cómo voy contra el objetivo. */}
       <DayHeader fecha={fecha} macros={macros} nEntradas={meals.length} />
 
-      {/* Lo que se comió, en renglones legibles: la superficie principal. */}
-      <section className="flex flex-col gap-4">
-        {plan?.slots.map((slot) => {
-          const delSlot = porSlot.get(slot.clave) ?? [];
-          return (
-            <div key={slot.id}>
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
-                  {slot.nombre}
-                  {slot.esOpcional && <span className="normal-case font-normal"> · opcional</span>}
-                </h2>
-                {/* Siempre visible: una segunda entrada en el mismo slot es lo
-                    normal, no la excepción. Antes el `+` desaparecía en cuanto
-                    había un registro y no había forma de agregar otro. */}
-                <Link
-                  href={`/registrar/${slot.clave}`}
-                  aria-label={`Registrar en ${slot.nombre}`}
-                  className="flex size-8 items-center justify-center rounded-full border border-border text-muted active:scale-95"
-                >
-                  <Plus className="size-4" />
-                </Link>
-              </div>
-
-              {delSlot.length > 0 ? (
-                <ul className="mt-1">
-                  {delSlot.map(({ entry, portions }) => (
-                    <MealRow key={entry.id} entry={entry} portions={portions} slotNombre={slot.nombre} />
-                  ))}
-                </ul>
-              ) : (
-                <p className="py-2 text-sm text-muted">Pendiente</p>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Entradas cuyo tiempo de comida ya no existe en el plan vigente: el
-            Bloque 2 quitó `snack_am`, y sin esto un registro viejo de ese slot
-            desaparecía de la lista mientras seguía sumando en las barras y en
-            los macros. Una comida que cuenta pero no se ve es indistinguible
-            de un dato perdido. */}
-        {huerfanas.map(([clave, delSlot]) => (
-          <div key={clave}>
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
-              {clave.replace(/_/g, " ")}
-              <span className="normal-case font-normal"> · fuera del plan vigente</span>
-            </h2>
-            <ul className="mt-1">
-              {delSlot.map(({ entry, portions }) => (
-                <MealRow key={entry.id} entry={entry} portions={portions} slotNombre={clave} />
-              ))}
-            </ul>
-          </div>
-        ))}
-      </section>
+      <DaySlots fecha={fecha} slots={plan?.slots ?? []} meals={meals} />
 
       {/* Verificación del plan en intercambios SMAE — distinto de los macros
           de arriba: aquí se lee proteína/cereal/grasa/fruta/verdura en

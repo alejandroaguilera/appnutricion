@@ -10,6 +10,11 @@ export interface DishComponentContext {
   notaLibre: string | null;
   /** "1/3 taza", "30 g" — equivalencia de una porción del ítem del catálogo. */
   cantidadPorcion: string | null;
+  /** Tasa por una porción, solo en `libre`. Sin esto, repetir una cerveza guardada sale en 0 kcal. */
+  kcalPorPorcion: number | null;
+  proteinaGPorPorcion: number | null;
+  carbosGPorPorcion: number | null;
+  grasaGPorPorcion: number | null;
 }
 
 export interface DishMatchContext {
