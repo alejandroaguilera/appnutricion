@@ -4,7 +4,15 @@ Estado real de construcción contra el orden de fases del §9 de `APP-NUTRICION-
 El spec es el contrato de diseño y no se edita; este archivo es lo que va cambiando.
 
 **En vivo:** https://appnutricion.mrhapps.mx
-**Última actualización:** 2026-10-06 (ronda 10 — comidas guardadas, días pasados, paleta)
+**Última actualización:** 2026-10-06 (ronda 11 — mapa de la base)
+
+## Ronda 11 — mapa de la base
+
+`ARQUITECTURA-BD.md` describe cómo está armada la base: Postgres (claves,
+cascadas, índices, tres migraciones, qué escribe el seed y qué escribe el
+teléfono) y el espejo en IndexedDB. `ARQUITECTURA.md` §5 queda como resumen y
+apunta ahí. En ese resumen se corrige el conteo de migraciones —son tres, no
+dos— y la fila de `Dish`, que no mencionaba los platillos que guarda el atleta.
 
 ## Ronda 10 — comidas fuera del plan, días pasados, paleta
 

@@ -10,6 +10,7 @@ Relación con los otros documentos del repo:
 | `APP-NUTRICION-SPEC_v3.md` | Contrato de diseño funcional. No se edita. Las referencias `§x.y` de este documento apuntan ahí. |
 | `ESTADO.md` | Bitácora viva: fases construidas, desviaciones del spec y su porqué, historia de incidentes. |
 | `ARQUITECTURA.md` | Este archivo: el mapa técnico (capas, datos, flujos, despliegue). |
+| `ARQUITECTURA-BD.md` | Cómo está armada la base: Postgres, IndexedDB y las reglas que no son constraints. El §5 de este archivo es el resumen. |
 
 Si este documento y el código discrepan, manda el código.
 
@@ -133,6 +134,9 @@ Dockerfile
 
 ## 5. Base de datos (Postgres / Prisma)
 
+Resumen. El mapa completo —claves, cascadas, índices, migraciones, el espejo
+en IndexedDB y las reglas que no son constraints— está en `ARQUITECTURA-BD.md`.
+
 ### 5.1 Diagrama entidad-relación
 
 ```mermaid
@@ -171,8 +175,8 @@ existe para la futura API de export (fase 9, pendiente).
 |---|---|---|
 | `FoodGroup` | 11 grupos SMAE con su tasa por porción (kcal, P, C, G) y color | `clave` enum único. `libre` tiene tasa 0 |
 | `FoodItem` | Alimentos concretos con su equivalencia (`cantidadPorcion`, `cantidadGramos?`) | `alias[]`, `archivadoEn` para ocultar (pescado, salmón) |
-| `Dish` | Platillos guardados del plan | `tipoComida[]`, `vecesUsado` ordena por frecuencia |
-| `DishComponent` | Porciones de cada grupo que forman un platillo | `foodItemId` nulo + `notaLibre` para genéricos fuera del SMAE |
+| `Dish` | Platillo del plan (`creadoPorUsuario = false`) o comida que el atleta guardó para repetir | `tipoComida[]`, `actualizadoEn` del cliente, `archivadoEn` al quitar. `vecesUsado` ordena por frecuencia |
+| `DishComponent` | Porciones de cada grupo que forman un platillo | `foodItemId` nulo + `notaLibre` para genéricos fuera del SMAE. En `libre`, la tasa por porción va en el componente |
 
 **Plan.**
 
@@ -227,7 +231,9 @@ existe para la futura API de export (fase 9, pendiente).
 
 ### 5.4 Migraciones y datos iniciales
 
-- Dos migraciones: `20260803174110_init` y `20260804120000_v3_ia_fotos_telegram`.
+- Tres migraciones: `20260803174110_init`, `20260804120000_v3_ia_fotos_telegram`
+  y `20261006040000_platillos_del_atleta` (`Dish.creadoPorUsuario`,
+  `Dish.actualizadoEn`, tasa por porción de `libre` en `DishComponent`).
 - Se generan **sin base de datos** con `prisma migrate diff` (receta en
   `ESTADO.md`) y solo se admiten cambios aditivos: `ADD COLUMN` nulable o con
   default, `CREATE TABLE`, `CREATE INDEX`. Una migración fallida deja el
